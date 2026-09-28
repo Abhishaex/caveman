@@ -183,8 +183,8 @@ The full 30+ agent matrix, dry runs, flags, and verification live in [INSTALL.md
 
 **Big rock.** The proxy, right after `npm install -g @caveman-ai/cli`:
 
-1. **Find out where your tokens go.** `caveman learn` reads months of agent history already on your disk, locally, and ranks your token sinks worst-first with a one-line fix behind each. Do this before anything else. It is the most useful five minutes in this README. After step 3 it keeps watching by itself and speaks up only when something new appears.
-2. **Let it fix them.** `caveman learn implement` hands each fix to Claude Code or Codex one diff at a time, applied only on your yes, and reverts anything that did not lower tokens per turn.
+1. **Find out where your tokens go.** `caveman learn` reads months of agent history already on your disk, locally, and ranks the places your tokens go, biggest first, with a one-line fix behind each. Do this before anything else. It is the most useful five minutes in this README. After step 3 it keeps watching by itself and speaks up only when something new appears.
+2. **Let it fix them.** `caveman learn implement` hands each fix to Claude Code or Codex one diff at a time, applied only on your yes, and undoes anything that did not make each message smaller.
 3. **Wrap your agent.** `caveman claude` (or `codex`, `gemini`, `aider`, `opencode`, `pi`, …) puts the proxy in front of it. Logs, test output, JSON, and diffs get shrunk before the provider sees them. Originals stay on disk, and the agent can pull any of them back.
 4. **Shrink the noisy stuff.** `caveman shrink -- pnpm test` compresses command output. `caveman browse <url>` gives the agent a compressed view of a web page instead of a 15,000-token accessibility dump.
 5. **Prove it on your own work.** `caveman trial -- claude` runs a real session with and without caveman, then `caveman trial report` shows the difference. That A/B outranks every number on this page. A trial needs its own proxy, so if you already did step 3 it will tell you to run `caveman disable claude` first, and `caveman enable claude` after. Caveman rather say "cannot measure this" than hand you a report full of zeros.
@@ -411,7 +411,9 @@ Any MCP host gets the same powers through five tools: `caveman_compress`, `cavem
 
 ### Where your tokens go
 
-Months of your agent history already sit on your disk. `caveman learn` reads it, locally, read-only, no account, and ranks your token sinks worst-first with a one-line fix behind each. Then it keep watching, so you not have to remember.
+Months of your agent history already sit on your disk. `caveman learn` reads it, locally, read-only, no account, and ranks the places your tokens go, biggest first, with a one-line fix behind each. Then it keep watching, so you not have to remember.
+
+Your agent re-sends its instructions (`CLAUDE.md`, skills, hooks) and the whole conversation with every message it sends the model. So a few hundred extra tokens in a setup file get paid again on every single message. That is what learn hunts.
 
 ```bash
 caveman learn             # Claude Code + Codex + Gemini CLI + opencode; aider via CAVEMAN_AIDER_ROOT
@@ -419,31 +421,32 @@ caveman learn implement   # hand the fixes to Claude Code or Codex, one diff at 
 ```
 
 <p align="center">
-  <img src="docs/assets/learn-report.png" alt="Caveman Learn report: TLDR summary and savings cards on the left; ranked token sinks with an expanded fix and a session context depth histogram on the right" width="900">
+  <img src="docs/assets/learn-report.png" alt="Caveman Learn report: a short summary and savings cards on the left; the biggest places tokens go, with one fix opened, and a chart of how full sessions get on the right" width="900">
 </p>
 
 **It run itself.** Once caveman is on your agent (`caveman claude`, `caveman codex`, …), learn re-scans quietly after a session ends. Low priority, at most every 6 hours, never makes the session wait. When something new and heavy shows up, your next session opens with one line, one time:
 
 ```
-caveman learn: new token sink — Project CLAUDE.md is 423 lines (~9699 tokens) loaded every turn (~9.7k tokens/turn, inferred). Run `caveman learn` to review.
+caveman learn: new finding — Project CLAUDE.md is 423 lines (~9,699 tokens), loaded with every message (~9.7k tokens in every message, estimate). Run `caveman learn` to review.
 ```
 
 Nothing new, nothing said. `caveman learn autopilot off` if you rather run it by hand.
 
-**It check your memory files.** Claude Code loads only the first 200 lines (or 25KB) of `MEMORY.md`. Everything past that, your agent never sees, and nothing tells you. Learn tells you. It also catches `@imports` pointing at files that are gone, the same rule pasted into two files your agent loads (you pay for it twice, every turn), file paths in `CLAUDE.md` that no longer exist, and memory notes the index forgot to link.
+**It check your memory files.** Claude Code loads only the first 200 lines (or 25KB) of `MEMORY.md`. Everything past that, your agent never sees, and nothing tells you. Learn tells you. It also catches `@imports` pointing at files that are gone, the same rule pasted into two files your agent loads (you pay for it twice, every message), file paths in `CLAUDE.md` that no longer exist, and memory notes the index forgot to link.
 
 **It say if you getting better.** Week over week, from your own sessions, first run included. Real output from the maintainer's machine, bad news left in:
 
 ```
-trend 6w  tokens/session  ▃▂▃▁█┊▂  +187% vs prior 4w · worse  (n=928)
-          peak context    ▁▂▄▄█┊▆  +15pp vs prior 4w · worse  (n=928)
-          dumbzone turns  ▁▂▄▄▄┊█  +5.6pp vs prior 4w · worse  (n=928)
-          a trend is not a saving and does not show cause
+last 6 weeks  tokens per session   ▄▂▃▁█┊▃  +187% · worse
+              peak context used    █▆▆▁▅┊▂  +1 point · flat
+              overloaded messages  ▂█▂▁▁┊▃  -2.1 points · improved
+              week of Sep 21 (928 sessions) vs the 4 weeks before
+              a trend is not a saving, and it does not show the cause
 ```
 
-Medians, not averages. Weeks under 5 sessions say "not enough data" instead of guessing. The dotted bar is the week still in progress: shown, never compared.
+"Overloaded" means the conversation filled more than half of what the model can hold at once. Past that, answers get worse. Each week counts its middle session, not the average, so one giant session can't skew it. Weeks under 5 sessions say "not enough data" instead of guessing. The `┊` marks the week still running: shown, never compared.
 
-**It prove the fix, or undo it.** `implement` re-measures after every change and reverts anything that didn't lower tokens per turn. Some fixes can't be re-counted, like a new skill that only pays off when it gets used. For those, `caveman learn experiment` runs it on for a stretch and off for a stretch over your own sessions, and gives no verdict before 5 sessions each way. Caveman never makes your agent dumber to make it cheaper.
+**It prove the fix, or undo it.** `implement` re-measures after every change and undoes anything that didn't make each message smaller. Some fixes can't be re-counted, like a new skill that only pays off when it gets used. For those, `caveman learn experiment` runs it on for a stretch and off for a stretch over your own sessions, and gives no verdict before 5 sessions each way. Caveman never makes your agent dumber to make it cheaper.
 
 Every verb, every check, every number it will and won't show: [docs/technical/learn.md](./docs/technical/learn.md).
 

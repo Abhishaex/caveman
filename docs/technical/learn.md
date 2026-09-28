@@ -1,13 +1,54 @@
 # caveman learn
 
-`caveman learn` reads the agent config files and session transcripts already on
-your machine and ranks where your agent's tokens go. It prints a Setup Score
-from 0 to 100 and a list of findings ("sinks"), and writes a local HTML and
-JSON report. It never edits your files. Fixes are applied by the
-`caveman-learn` skill inside Claude Code or Codex, one approved edit at a time.
+`caveman learn` shows where your coding agent's tokens go, and what to fix
+first. It reads the setup files and session history already on your computer.
+Nothing is sent anywhere.
 
-Every number learn produces is labeled `inferred`. No local number is promoted
-to `verified`; see [Accounting and evidence](./accounting-and-evidence.md).
+You get:
+
+- a **Setup Score** from 0 to 100 (higher is leaner),
+- a list of **findings**: places your tokens go, biggest first, each with a
+  suggested fix,
+- a local HTML report and a JSON file.
+
+It never edits your files. Fixes happen inside Claude Code or Codex, through
+the `caveman-learn` skill, one edit at a time, and only after you say yes.
+
+Every number is an estimate from your own history (`inferred` in JSON). No
+local number is promoted to `verified`; see
+[Accounting and evidence](./accounting-and-evidence.md).
+
+## Words used in the report
+
+The report and terminal use plain words. JSON keeps the precise names in the
+right-hand column; the tables further down use them too.
+
+| Word | What it means | Name in JSON |
+|---|---|---|
+| message | One request your agent sends to the model: your prompt, or one tool step. The agent re-sends its instructions and the whole conversation with every one. | turn (`tokens_per_turn`, `turns`) |
+| finding | One place your tokens go, with the evidence and a suggested fix. | sink (`sinks[]`) |
+| id | A finding's name, for commands like `caveman learn apply <id>`. Shown by `--all`. | `sink_id` |
+| Setup Score | How lean your setup is, 0 to 100, from this computer only. Not money. Caveman Cloud's team score is a different number. | `cave_score` |
+| tokens a day at your usual pace | Tokens per message times your average messages per day in the period scanned. A rate from now on, not tokens already spent. | `tokens_per_day_rate` |
+| tokens so far | What a habit already used in the period scanned. | `tokens_observed` |
+| estimate | Worked out from local files. Not verified, not a bill. | `basis: "inferred"` |
+| safe fix | A mechanical fix exists. It is applied only if it uses fewer tokens overall. | class `reducible` |
+| repeated text | The same text pasted again across sessions. Caveman memory can recall it instead. | class `recurring_context` |
+| habit | A measured pattern in how your sessions run. Changing it is up to you. | class `behavioral` |
+| needed | Setup you need. Shown so the picture is complete; never changed. | class `load_bearing` |
+| always-loaded setup, instructions | `CLAUDE.md`, `AGENTS.md`, skill descriptions, hooks: loaded into every message. | `config_tax` |
+| unused skills | Skills whose descriptions load with every message but were never used in the sessions scanned. | `dead_load` |
+| context window | How much the model can hold at once. | window |
+| overloaded messages | Messages where the conversation filled more than half the context window. Answers get worse past that point. | `dumbzone`, `context_dumbzone` |
+| how full sessions get | Each session's peak share of the context window. | `context_depth`, `peak_context_pct` |
+| first-message size | What a session sends with its first message: your setup plus your first prompt. | `first_turn_tokens`, `measured_prefix_tokens` |
+| Caveman memory (cavemem) | Caveman's local memory store. The agent recalls a short version of the text when it needs it, instead of pasting it again. | `cavemem_offload` |
+| read from cache | Share of input the provider served from its prompt cache, which costs about a tenth of list price. | `cache_read_pct` |
+| input really costs | Your input price per million tokens after caching, and its share of list price. | `effective_input_usd_per_mtok`, `effective_input_multiplier` |
+| no price | A model missing from Caveman's price list. Its tokens are left out, so the real total is higher. | `unpriced` |
+| points | The change in a percentage: 15% to 13% is −2 points. | percentage points |
+| week of Sep 21 | A Monday-to-Sunday week, in UTC. | ISO week (`2026-W39`) |
+| middle session | The median: half the sessions are above it, half below. | median |
 
 ## Privacy: what it reads and writes
 
@@ -58,7 +99,7 @@ Report files are created with mode `0600`.
 ## Quick start
 
 ```bash
-caveman learn             # scan, score, show top moves
+caveman learn             # read your sessions, score them, show the top findings
 caveman learn implement   # open Claude Code or Codex to review and fix, with consent
 caveman learn savings     # later: what the applied fixes returned
 ```
@@ -70,7 +111,7 @@ The default window is `--since 30d`. The scan times out after 120 s
 
 | Command | What it does |
 |---|---|
-| `caveman learn` | In an interactive terminal: progress, Setup Score, top moves, then a menu (implement, show all findings, open report, done). Otherwise compact text. |
+| `caveman learn` | In an interactive terminal: progress, Setup Score, top findings, then a menu (implement, show all findings, open report, done). Otherwise compact text. |
 | `--plain` | Compact text; no animation or menu. `CAVEMAN_PLAIN=1` or `TERM=dumb` has the same effect. |
 | `--all` | Every finding with internal id, basis, evidence and suggestion; confirmed outcomes; per-repository rows. |
 | `--json` | The `caveman.learn.v1` plan on stdout. |
@@ -150,7 +191,7 @@ Autopilot rescans in the background and tells you about new findings without you
 | Enable precedence | `CAVEMAN_LEARN_AUTOPILOT` env (`0`, `false`, `off`, `no` disable; anything else enables) → `learnAutopilot` in `~/.caveman-cloud/config.json` → off when `CI` is set (not `0`/`false`) or under `NODE_TEST_CONTEXT` → on. |
 | Opt out | `caveman learn autopilot off`, or `CAVEMAN_LEARN_AUTOPILOT=0`. |
 | State | `$CAVEMAN_HOME/runtime/learn-autopilot*.json`. Writes are temp-file + rename and refuse symlinked parents. |
-| Status | `caveman learn autopilot status`: on/off and why, last scan, next eligible time, last error, last announced line, pending nudge. |
+| Status | `caveman learn autopilot status`: on/off and why, last scan, next scan, last error, last line shown, and a line waiting to show. |
 
 ### Session-start nudge
 
@@ -158,7 +199,7 @@ After a background scan, autopilot may show one line at the next session
 start, for example:
 
 ```
-caveman learn: new token sink — <title> (~2.4k tokens/turn, inferred). Run `caveman learn` to review.
+caveman learn: new finding — <title> (~2.4k tokens in every message, estimate). Run `caveman learn` to review.
 ```
 
 Rules:
@@ -169,9 +210,9 @@ Rules:
   threshold.
 - `memory_health:broken_imports` and `memory_health:memory_truncation` qualify
   with no token threshold: they break what the agent loads. When they are all
-  that is new they lead the line (`caveman learn: memory & rules (<repo>) — <title>.
+  that is new they lead the line (`caveman learn: memory files (<repo>) — <title>.
   Run \`caveman learn --all\` to review.`); otherwise they are appended as
-  ", plus N memory & rules findings".
+  ", plus N memory-file findings".
 - Only sinks not seen by an earlier autopilot scan. The first scan records a
   baseline and announces nothing.
 - While a nudge is still unclaimed, newer sinks stay unseen and are announced
@@ -215,7 +256,7 @@ What it is not:
 
 The terminal and TUI show the score only once at least one block has
 recurred across three or more sessions (a `recurring_context` sink exists).
-Before that, learn prints the session count and top moves without a score.
+Before that, learn prints the session count and top findings without a score.
 `--json` always includes it.
 
 ## Sink reference
@@ -223,15 +264,16 @@ Before that, learn prints the session count and top moves without a score.
 Sinks are ranked: forward-rate sinks first by tokens per day, then historical
 sinks by observed tokens.
 
-Classes:
+Classes (the report's label in brackets):
 
-- `reducible`: a mechanical fix exists and must pass the net-token-negative
-  gate.
-- `recurring_context`: content re-established across sessions; fix is a
-  cavemem offload.
-- `behavioral`: a measured habit. Numbers are stated; suggestions are soft.
-- `load_bearing`: measured config you need. Listed so the score stays honest;
-  never edited.
+- `reducible` ("safe fix"): a mechanical fix exists and must pass the
+  net-token-negative gate.
+- `recurring_context` ("repeated text"): content re-established across
+  sessions; fix is a cavemem offload.
+- `behavioral` ("habit"): a measured habit. Numbers are stated; suggestions
+  are soft.
+- `load_bearing` ("needed"): measured config you need. Listed so the score
+  stays honest; never edited.
 
 | Sink id | Class | Measures | Fix kind | Auto-fixable |
 |---|---|---|---|---|
