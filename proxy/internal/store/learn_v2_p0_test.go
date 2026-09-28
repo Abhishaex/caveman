@@ -440,3 +440,16 @@ func TestProjectClaudeMDRateCountsOnlyThatProjectsClaudeSessions(t *testing.T) {
 		t.Fatalf("fallback rate = %d basis %v", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"])
 	}
 }
+
+func TestClaudeProviderModelSplitsOnlyKnownVendorPrefixes(t *testing.T) {
+	for in, want := range map[string][2]string{
+		"claude-opus-5-5":         {"anthropic", "claude-opus-5-5"},
+		"google/gemini-3.7-flash": {"gemini", "gemini-3.7-flash"},
+		"openai/gpt-6-sol":        {"openai", "gpt-6-sol"},
+		"arn:aws:bedrock:us-east-1:1:application-inference-profile/x": {"anthropic", "arn:aws:bedrock:us-east-1:1:application-inference-profile/x"},
+	} {
+		if p, m := claudeProviderModel(in); p != want[0] || m != want[1] {
+			t.Errorf("claudeProviderModel(%q) = %s/%s, want %s/%s", in, p, m, want[0], want[1])
+		}
+	}
+}
