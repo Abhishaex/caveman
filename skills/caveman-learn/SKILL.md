@@ -104,6 +104,29 @@ shortcut it.
 - The harness compares median tokens per session. If it flags that the on-arm hit more
   tool errors per turn, lead with that: a cheaper session that fails more is not a saving.
 
+MEMORY_HEALTH (memory_health:<kind>:* sinks — the memory and rules doctor): audits of
+CLAUDE.md, CLAUDE.local.md, .claude/rules, AGENTS.md, GEMINI.md and Claude Code auto
+memory (MEMORY.md plus its topic files). Every item is one edit, one yes. Never delete
+memory content without the user's yes.
+- duplicate_rules — reducible. The same rule loads from two files every turn. Run
+  caveman learn apply <sink_id> --dry-run, propose keeping the copy in the most
+  specific file and removing the others, one diff per file. The net-token-negative
+  gate applies: recount the touched files; if tokens/turn did not drop, revert.
+- memory_orphans — memory files the index never links, and index links to missing
+  files. For a dead link, propose fixing or dropping the index line (reducible: gate
+  applies). For an orphan file, show its first lines and ask: link it from MEMORY.md,
+  or retire it. Linking adds index tokens — say so; that edit is outside the gate.
+- memory_truncation — MEMORY.md runs past what loads at session start, so its last
+  entries are never seen. Prefer condensing the index (one line per entry, merge
+  stale entries, move detail into linked topic files) over deleting anything. Show
+  the new index and its line count against the limit before writing.
+- broken_imports — an @import points at nothing. For each one ask whether to fix the
+  path (show the candidate file you found) or remove the import.
+- stale_references — a backticked repo path no longer exists. Behavioral: show the
+  line and where the file likely moved; update or drop only on a yes.
+- buried_rules — a heuristic, and say so. Offer to move the listed emphatic rules
+  nearer the top; never rewrite their wording.
+
 LOAD_BEARING: never touch. It appears in the report only so the score stays honest.
 
 Reporting savings (caveman learn savings):

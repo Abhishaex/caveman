@@ -241,6 +241,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	plan.Sinks = append(plan.Sinks, rereadWasteSink(beh.RereadSessions)...)
 	plan.Sinks = append(plan.Sinks, compactionChurnSink(beh.CompactionSessions)...)
 	plan.Sinks = append(plan.Sinks, mcpSurfaceSink(cfg, plan.Sinks)...)
+	plan.Sinks = append(plan.Sinks, memoryHealthSinks(cwd, turnsPerDay)...)
 	sectionsTimeBoxed := deadline != nil && deadline.expired()
 	if !sectionsTimeBoxed {
 		plan.Sinks = append(plan.Sinks, claudeMDSectionSinks(cfg, beh.SessionTexts)...)
