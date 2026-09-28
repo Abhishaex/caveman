@@ -157,7 +157,7 @@ After a background scan, autopilot may show one line at the next session
 start, for example:
 
 ```
-caveman learn: new token sink — <title> (~2.4k tokens/turn). Run `caveman learn` to review.
+caveman learn: new token sink — <title> (~2.4k tokens/turn, inferred). Run `caveman learn` to review.
 ```
 
 Rules:

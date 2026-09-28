@@ -100,9 +100,12 @@ export function learnTrendLines(trends: LearnTrends | undefined): string[] {
   if (metrics.length === 0) return [];
   const head = `trend ${trends.weeks.length}w`;
   const width = Math.max(...metrics.map((metric) => metric.label.length));
-  return metrics.map((metric, index) =>
-    `${index === 0 ? head : " ".repeat(head.length)}  ${metric.label.padEnd(width)}  ${trendSpark(trends, metric)}  ${trendChange(metric, trends.prior_weeks)}  (n=${metric.current_sessions})`,
-  );
+  return [
+    ...metrics.map((metric, index) =>
+      `${index === 0 ? head : " ".repeat(head.length)}  ${metric.label.padEnd(width)}  ${trendSpark(trends, metric)}  ${trendChange(metric, trends.prior_weeks)}  (n=${metric.current_sessions})`,
+    ),
+    `${" ".repeat(head.length)}  a trend is not a saving and does not show cause`,
+  ];
 }
 
 // learnTrendTable is the --all / --md view: every metric, plus score history

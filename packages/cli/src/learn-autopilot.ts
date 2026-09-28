@@ -219,7 +219,7 @@ export function nudgeLine(fresh: Fresh[]): string {
   const top = sinks[0]!;
   const lead = sinks.length === 1 ? "new token sink" : `${sinks.length} new token sinks, biggest`;
   const extra = doctor.length > 0 ? `, plus ${findings(doctor.length)}` : "";
-  return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens/turn)${extra}. Run \`caveman learn\` to review.`;
+  return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens/turn, inferred)${extra}. Run \`caveman learn\` to review.`;
 }
 
 // Child side (`caveman learn autopilot run`). Holds the lock for the whole

@@ -215,7 +215,7 @@ test("new big sink is announced once, user-visible, only on startup/clear", { sk
     box.seed({ seen: [] });
     const scan = await run([cli, "learn", "autopilot", "run"], box.env);
     assert.equal(scan.code, 0, scan.stderr);
-    const expected = "caveman learn: new token sink — Project CLAUDE.md loads every turn (~9.8k tokens/turn). Run `caveman learn` to review.";
+    const expected = "caveman learn: new token sink — Project CLAUDE.md loads every turn (~9.8k tokens/turn, inferred). Run `caveman learn` to review.";
 
     for (const source of ["compact", "resume", "fork", undefined]) {
       const out = await hook(cli, "claude", sessionStart(source), box.env);
@@ -258,14 +258,14 @@ test("several new sinks collapse into one line; unclaimed nudge is not overwritt
     await new Promise((r) => setTimeout(r, 20));
     await run([cli, "learn", "autopilot", "run"], box.env);
     const next = await hook(cli, "codex", sessionStart("startup"), box.env);
-    assert.match(JSON.parse(next.stdout).systemMessage, /new token sink — Deploy notes pasted each session \(~2\.4k tokens\/turn\)/);
+    assert.match(JSON.parse(next.stdout).systemMessage, /new token sink — Deploy notes pasted each session \(~2\.4k tokens\/turn, inferred\)/);
 
     // Multi-sink single line.
     box.seed({ seen: [] });
     await run([cli, "learn", "autopilot", "run"], box.env);
     const multi = await hook(cli, "claude", sessionStart("startup"), box.env);
     assert.equal(JSON.parse(multi.stdout).systemMessage,
-      "caveman learn: 2 new token sinks, biggest — Project CLAUDE.md loads every turn (~9.8k tokens/turn). Run `caveman learn` to review.");
+      "caveman learn: 2 new token sinks, biggest — Project CLAUDE.md loads every turn (~9.8k tokens/turn, inferred). Run `caveman learn` to review.");
   } finally { box.cleanup(); }
 });
 
@@ -322,7 +322,7 @@ test("nudge line counts doctor findings behind the biggest token sink", async ()
   assert.equal(nudgeLine([
     { title: "Big sink", tokens_per_turn: 5000 },
     { title: "Broken import", tokens_per_turn: 0, doctor: true },
-  ]), "caveman learn: new token sink — Big sink (~5.0k tokens/turn), plus 1 memory & rules finding. Run `caveman learn` to review.");
+  ]), "caveman learn: new token sink — Big sink (~5.0k tokens/turn, inferred), plus 1 memory & rules finding. Run `caveman learn` to review.");
 });
 
 test("an unconfirmed in-flight nudge re-shows once after 10 minutes, never twice", { skip: !posix }, async () => {

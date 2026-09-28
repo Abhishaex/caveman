@@ -59,6 +59,7 @@ test("plain learn shows a compact trend section after the score", () => {
   assert.ok(at > 0 && at < 5, out);
   assert.equal(lines[at], "trend 6w  tokens/session  ·▃█▆▁┊█  -18% vs prior 4w · improved  (n=212)");
   assert.equal(lines[at + 1], "          peak context    ·▁█▅▆┊█  +0.5pp vs prior 4w · flat  (n=212)");
+  assert.equal(lines[at + 2], "          a trend is not a saving and does not show cause");
   assert.ok(!out.includes("cache reads"), "compact view keeps to 2-4 lines");
   assert.ok(!/\$/.test(lines.slice(at, at + 3).join("\n")));
 });
