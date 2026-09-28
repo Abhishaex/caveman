@@ -113,3 +113,16 @@ func TestDigestStatesWhatItIsAndIsNot(t *testing.T) {
 		t.Fatalf("uploading must not read as a promotion to verified: %v", digest.Caveats)
 	}
 }
+
+func TestDigestSinkIDStripsUserDataHashes(t *testing.T) {
+	for in, want := range map[string]string{
+		"memory_health:broken_imports:abcd1234":      "memory_health:broken_imports:*",
+		"memory_health:memory_truncation:9f8e7d6c":   "memory_health:memory_truncation:*",
+		"recurring_context:repaste:4edfc5c7890a26d5": "recurring_context:repaste:*",
+		"claude_md_weight:project":                   "claude_md_weight:project",
+	} {
+		if got := digestSinkID(in); got != want {
+			t.Errorf("digestSinkID(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

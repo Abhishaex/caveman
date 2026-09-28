@@ -169,13 +169,19 @@ func buildLearnDigest(plan LearnPlan) LearnDigest {
 }
 
 // digestSinkID strips the opaque suffix from identity-bearing sink ids. The
-// suffix is a content hash of user data (a repeated block, a procedure's step
-// sequence); the family is what the cloud needs, the hash is not.
+// suffix is a hash of user data (a repeated block, a procedure's step
+// sequence, a memory file's path); the family is what the cloud needs, the
+// hash is not.
 func digestSinkID(sinkID string) string {
 	for _, prefix := range []string{"recurring_context:repaste:", "procedure_repeat:", "learning_loop:"} {
 		if strings.HasPrefix(sinkID, prefix) {
 			return strings.TrimSuffix(prefix, ":") + ":*"
 		}
+	}
+	// memory_health:<kind>:<scope> scopes are file or memory-dir path hashes.
+	if kind, ok := strings.CutPrefix(sinkID, "memory_health:"); ok {
+		kind, _, _ = strings.Cut(kind, ":")
+		return "memory_health:" + kind + ":*"
 	}
 	return sinkID
 }
