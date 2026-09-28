@@ -315,6 +315,19 @@ func pick(n int, one, many string) string {
 	return many
 }
 
+// memoryOrphansTitle names only the problems present: "3 memory files are
+// not linked from MEMORY.md", "and 2 links point to missing files".
+func memoryOrphansTitle(orphans, dangling int) string {
+	var parts []string
+	if orphans > 0 {
+		parts = append(parts, fmt.Sprintf("%s %s not linked from MEMORY.md", plural(orphans, "memory file"), pick(orphans, "is", "are")))
+	}
+	if dangling > 0 {
+		parts = append(parts, fmt.Sprintf("%s in MEMORY.md %s to missing files", plural(dangling, "link"), pick(dangling, "points", "point")))
+	}
+	return strings.Join(parts, ", and ")
+}
+
 func memorySink(kind, scope, title, class string, tokensPerTurn int, turnsPerDay float64, evidence map[string]any, suggestion string) Sink {
 	s := Sink{
 		SinkID: "memory_health:" + kind + ":" + scope, Title: title, Class: class, Basis: learnBasis,
@@ -340,15 +353,15 @@ func memoryTruncationSink(f *instructionFile) []Sink {
 	}
 	notLoaded, basis := configTokenCount(strings.Join(f.Lines[f.Loaded:], "\n"))
 	return []Sink{memorySink("memory_truncation", fileFingerprint(filepath.Dir(f.Path)),
-		fmt.Sprintf("MEMORY.md is %s; %s (%d %s) past the session-start cutoff never %s",
-			plural(len(f.Lines), "line"), plural(past, "line"), entries, pick(entries, "index entry", "index entries"), pick(past, "loads", "load")),
+		fmt.Sprintf("MEMORY.md is %s long; the last %s (%d %s) never %s, because only the start is read",
+			plural(len(f.Lines), "line"), plural(past, "line"), entries, pick(entries, "memory entry", "memory entries"), pick(past, "loads", "load")),
 		classBehavioral, 0, 0, map[string]any{
 			"path": f.Path, "lines": len(f.Lines), "loaded_lines": f.Loaded, "lines_past_cutoff": past,
 			"entries_past_cutoff": entries, "tokens_not_loaded": notLoaded, "token_basis": basis,
 			"limit":    fmt.Sprintf("first %d lines or %d bytes, whichever comes first", memoryIndexLineLimit, memoryIndexByteLimit),
 			"fix_kind": "memory_index_condense",
 		},
-		"Per Claude Code docs, only the start of MEMORY.md loads each session. Consider condensing the index to one line per entry and moving detail into linked topic files, so the entries past the cutoff are seen again.")}
+		"Claude Code only reads the start of MEMORY.md in each session (see its docs). Consider shortening it to one line per memory and moving the details into the linked files, so the entries at the end are read again.")}
 }
 
 func memoryOrphansSink(f *instructionFile, memDir string, turnsPerDay float64) []Sink {
@@ -401,13 +414,13 @@ func memoryOrphansSink(f *instructionFile, memDir string, turnsPerDay float64) [
 	}
 	_, basis := configTokenCount("")
 	return []Sink{memorySink("memory_orphans", fileFingerprint(memDir),
-		fmt.Sprintf("Auto memory: %s MEMORY.md never links, %s to missing files", plural(len(orphans), "file"), plural(len(dangling), "index link")),
+		memoryOrphansTitle(len(orphans), len(dangling)),
 		class, danglingTokens, turnsPerDay, map[string]any{
 			"path": f.Path, "memory_dir": memDir, "orphan_files": capStrings(orphans), "orphan_count": len(orphans),
 			"dangling_links": capStrings(dangling), "dangling_count": len(dangling),
 			"dangling_tokens_per_turn": danglingTokens, "token_basis": basis, "fix_kind": "memory_index_repair",
 		},
-		"Unlinked memory files are never surfaced from the index; links to missing files load every session and point nowhere. Consider linking or retiring the orphans and dropping or fixing the dead links — each with the user's yes.")}
+		"The agent only finds memory files through links in MEMORY.md, so unlinked files are never used. Broken links load in every session and lead nowhere. Consider linking or deleting the unlinked files and fixing or removing the broken links, with the user's yes for each.")}
 }
 
 func brokenImportsSink(f *instructionFile) []Sink {
@@ -442,9 +455,9 @@ func brokenImportsSink(f *instructionFile) []Sink {
 		return nil
 	}
 	return []Sink{memorySink("broken_imports", fileFingerprint(f.Path),
-		fmt.Sprintf("%s (%s) has %s", filepath.Base(f.Path), f.Scope, pick(len(broken), "1 @import that resolves to a missing file", fmt.Sprintf("%d @imports that resolve to missing files", len(broken)))),
+		fmt.Sprintf("%s (%s) has %s", filepath.Base(f.Path), f.Scope, pick(len(broken), "1 @import that points to a missing file", fmt.Sprintf("%d @imports that point to missing files", len(broken)))),
 		classBehavioral, 0, 0, map[string]any{"path": f.Path, "imports": capStrings(broken), "count": len(broken)},
-		"These @imports load nothing, so whatever they were meant to pull in is silently absent. Consider fixing each path or removing the import.")}
+		"These @imports load nothing, so whatever they should pull in is quietly missing. Consider fixing each path or removing the import.")}
 }
 
 // importLooksLikePath keeps only tokens that are unambiguously file imports:
@@ -500,7 +513,7 @@ func staleReferencesSink(f *instructionFile) []Sink {
 	return []Sink{memorySink("stale_references", fileFingerprint(f.Path),
 		fmt.Sprintf("%s names %s", filepath.Base(f.Path), pick(len(stale), "1 repo path that no longer exists", fmt.Sprintf("%d repo paths that no longer exist", len(stale)))),
 		classBehavioral, 0, 0, map[string]any{"path": f.Path, "repo_root": root, "references": capStrings(stale), "count": len(stale)},
-		"Instructions that point at moved or deleted files can send the agent looking in the wrong place. Consider updating or dropping these references.")}
+		"Instructions that point at moved or deleted files can send the agent to the wrong place. Consider updating or removing these paths.")}
 }
 
 func repoRelativeRef(tok string) (string, bool) {
@@ -542,10 +555,10 @@ func buriedRulesSink(f *instructionFile) []Sink {
 		sample = sample[:memoryHealthSampleCap]
 	}
 	return []Sink{memorySink("buried_rules", fileFingerprint(f.Path),
-		fmt.Sprintf("%s: %s in the middle of a %d-line file", filepath.Base(f.Path), pick(len(lines), "1 emphatic rule sits", fmt.Sprintf("%d emphatic rules sit", len(lines))), n),
+		fmt.Sprintf("%s: %s in the middle of a %d-line file", filepath.Base(f.Path), pick(len(lines), "1 important rule (IMPORTANT, MUST, NEVER…) is buried", fmt.Sprintf("%d important rules (IMPORTANT, MUST, NEVER…) are buried", len(lines))), n),
 		classBehavioral, 0, 0, map[string]any{"path": f.Path, "lines": n, "count": len(lines), "rule_lines": sample,
 			"band": "30-70% of the file", "method": "heuristic"},
-		"Heuristic: long-context models tend to weight the start and end of a file more; consider moving these up.")}
+		"Rule of thumb, not a measurement: models tend to pay more attention to the start and end of a long file. Consider moving these rules up.")}
 }
 
 type dupRule struct {
@@ -617,12 +630,12 @@ func duplicateRulesSink(files []instructionFile, agent string, turnsPerDay float
 	}
 	_, basis := configTokenCount("")
 	return []Sink{memorySink("duplicate_rules", agent,
-		fmt.Sprintf("%s more than once per %s session (~%d duplicate tokens/turn)", pick(total, "1 rule loads", fmt.Sprintf("%d rules load", total)), agent, tokens),
+		fmt.Sprintf("%s more than once in each %s session (~%s extra tokens in every message)", pick(total, "1 rule loads", fmt.Sprintf("%d rules load", total)), sourceDisplayName(agent), commaInt(int64(tokens))),
 		classReducible, tokens, turnsPerDay, map[string]any{
 			"agent": agent, "duplicates": dups, "duplicate_count": total, "token_basis": basis,
 			"fix_kind": "dedupe_rules",
 		},
-		"The same rule is loaded from more than one file every turn. Keep the copy in the most specific file that needs it and remove the others, one edit at a time with consent.")}
+		"The same rule is loaded from more than one file with every message. Keep the copy in the most specific file that needs it and remove the others, one edit at a time, with the user's yes.")}
 }
 
 func normalizeRule(line string) string {

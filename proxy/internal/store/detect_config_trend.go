@@ -143,13 +143,13 @@ func configTrendSink(rows []configTrendRow, turnsPerDay float64, spend *LearnSpe
 	}
 	sink := Sink{
 		SinkID: "config_growth",
-		Title: fmt.Sprintf("Config that loads every turn grew %s tokens across %d file(s)",
-			humanTokens(int64(totalGrowth)), len(grown)),
+		Title: fmt.Sprintf("Instructions loaded with every message grew by %s tokens across %s",
+			humanTokens(int64(totalGrowth)), plural(len(grown), "file")),
 		Class: classBehavioral, Basis: observedLocal, Framing: framingForward,
 		TokensPerTurn:    int64(totalGrowth),
 		TokensPerDayRate: rate(totalGrowth, turnsPerDay),
 		Evidence:         evidence,
-		Suggestion:       "Growth in always-loaded config compounds: every added token is paid on every turn of every session. Worth checking whether the additions still earn their place.",
+		Suggestion:       "Every token added here is sent again with every message of every session, so growth adds up fast. Check whether the new parts still earn their place.",
 	}
 	if spend != nil {
 		if usd := spend.priceInputTokens(sink.TokensPerDayRate); usd > 0 {

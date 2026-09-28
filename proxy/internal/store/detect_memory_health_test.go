@@ -187,7 +187,7 @@ func TestDuplicateRules(t *testing.T) {
 	if s.Evidence["duplicate_count"] != 1 {
 		t.Fatalf("only the test-suite rule should duplicate: %+v", s.Evidence)
 	}
-	if !strings.HasPrefix(s.Title, "1 rule loads more than once per claude session") {
+	if !strings.HasPrefix(s.Title, "1 rule loads more than once in each Claude session") {
 		t.Fatalf("singular title = %q", s.Title)
 	}
 	perCopy, _ := configTokenCount("- " + rule)
@@ -258,7 +258,7 @@ func TestBuriedRules(t *testing.T) {
 				}
 				return
 			}
-			if len(got) != 1 || got[0].Evidence["count"] != tc.want || !strings.Contains(got[0].Suggestion, "Heuristic") {
+			if len(got) != 1 || got[0].Evidence["count"] != tc.want || !strings.Contains(got[0].Suggestion, "Rule of thumb") {
 				t.Fatalf("got %+v", got)
 			}
 		})
@@ -306,7 +306,7 @@ func TestLearnReportListsEveryMemoryHealthFinding(t *testing.T) {
 	for i := range 25 {
 		sinks = append(sinks, Sink{SinkID: fmt.Sprintf("config_tax:x%d", i), Title: fmt.Sprintf("busy sink %d", i), Class: classReducible, Basis: learnBasis, TokensPerTurn: 100, TokensPerDayRate: int64(10_000 - i)})
 	}
-	sinks = append(sinks, memorySink("broken_imports", "abcd1234", "CLAUDE.md (project) has 1 @import that resolves to a missing file", classBehavioral, 0, 0,
+	sinks = append(sinks, memorySink("broken_imports", "abcd1234", "CLAUDE.md (project) has 1 @import that points to a missing file", classBehavioral, 0, 0,
 		map[string]any{"path": "/repo/CLAUDE.md"}, "Fix or remove the @import."))
 	render := func(sinks []Sink) string {
 		t.Helper()
@@ -318,16 +318,16 @@ func TestLearnReportListsEveryMemoryHealthFinding(t *testing.T) {
 		return string(raw)
 	}
 	html := render(sinks)
-	at := strings.Index(html, "<h2>Memory &amp; rules health</h2>")
+	at := strings.Index(html, "<h2>Memory and instruction files</h2>")
 	if at < 0 {
 		t.Fatal("memory & rules section missing")
 	}
-	for _, want := range []string{"broken imports", "has 1 @import that resolves", "Fix or remove the @import.", "/repo/CLAUDE.md", "Every finding is listed here (1)"} {
+	for _, want := range []string{"Broken @imports", "has 1 @import that points", "Fix or remove the @import.", "/repo/CLAUDE.md", "This finding is listed here."} {
 		if !strings.Contains(html[at:], want) {
 			t.Errorf("memory section missing %q", want)
 		}
 	}
-	if strings.Contains(render(sinks[:25]), "Memory &amp; rules health") {
+	if strings.Contains(render(sinks[:25]), "Memory and instruction files") {
 		t.Error("section must be omitted without memory findings")
 	}
 }
@@ -338,7 +338,7 @@ func TestMemoryHealthTitlesUseSingular(t *testing.T) {
 	mustMkdir(t, filepath.Join(repo, "src"))
 	sinks := memoryHealthSinks(repo, 0)
 	for prefix, want := range map[string]string{
-		"memory_health:broken_imports:":   "CLAUDE.md (project) has 1 @import that resolves to a missing file",
+		"memory_health:broken_imports:":   "CLAUDE.md (project) has 1 @import that points to a missing file",
 		"memory_health:stale_references:": "CLAUDE.md names 1 repo path that no longer exists",
 	} {
 		got := memorySinksWithPrefix(sinks, prefix)

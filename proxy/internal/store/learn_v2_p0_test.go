@@ -56,7 +56,7 @@ func TestLearnV2MeasuredPrefixUsesFirstDeduplicatedTurnAcrossSources(t *testing.
 	if got := sink.Evidence["unexplained_prefix_tokens"]; got != max(0, 200-static) {
 		t.Fatalf("unexplained prefix = %v, want %d", got, max(0, 200-static))
 	}
-	if !containsCaveat(plan.Caveats, "Turn-1 context includes the first user prompt") {
+	if !containsCaveat(plan.Caveats, "The first-message size includes your first prompt") {
 		t.Fatalf("measured-prefix caveat missing: %v", plan.Caveats)
 	}
 
@@ -383,7 +383,7 @@ func TestSessionContextPastFallbackWindowInfersLargerWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !containsCaveat(plan.Caveats, "inferred from observed context") {
+	if !containsCaveat(plan.Caveats, "assumed the next bigger window") {
 		t.Fatalf("plan does not say the window was inferred: %v", plan.Caveats)
 	}
 	small := scan(150_000, 190_000)

@@ -232,14 +232,14 @@ func TestLearnReportRendersTrendsSection(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(out)
 	html := string(raw)
-	trendsAt, sinksAt := strings.Index(html, "<h2>Trends</h2>"), strings.Index(html, "<h2>Token Sinks</h2>")
+	trendsAt, sinksAt := strings.Index(html, "<h2>Trends</h2>"), strings.Index(html, "<h2>Where your tokens go</h2>")
 	if trendsAt < 0 || trendsAt > sinksAt {
-		t.Fatal("Trends section missing or not before Token Sinks")
+		t.Fatal("Trends section missing or not before the findings")
 	}
 	section := html[trendsAt:sinksAt]
 	for _, want := range []string{
-		"A trend is not a saving", "tokens/session", "1,200", "prior 1,000 · &#43;20% · n=6",
-		"2026-W36* n=2", "2026-W40 (in progress) n=6", "(in progress) · 1,300", "insufficient data</title>", "<polyline", "worse",
+		"A trend is not a saving", "tokens per session", "1,200", "before: 1,000 · &#43;20% · 6 sessions",
+		"Aug 31* · 2 sessions", "Sep 28 (still running) · 6 sessions", "(still running) · 1,300", "not enough data</title>", "<polyline", "worse",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("trends section missing %q", want)

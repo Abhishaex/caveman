@@ -206,15 +206,15 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 		computedAt:       time.Now().UTC().Format(time.RFC3339Nano),
 		Sinks:            []Sink{},
 		Caveats: []string{
-			"Local learn results are inferred. No local number is promoted to verified; Cloud additionally requires supported provider-causal, provider-complete, catalog-priced active evidence.",
-			"Config tax is reported as a forward rate from your current setup, never as tokens already wasted.",
+			"Every number here is an estimate from your own history on this computer. None of it counts as verified. Caveman Cloud needs more before it calls a number verified: complete usage from the provider, a known price, and proof that a change caused the result.",
+			"Instruction costs show what your current setup adds from now on. They are not tokens already wasted.",
 		},
 	}
 	if len(beh.FallbackWindowSources) > 0 {
-		plan.Caveats = append(plan.Caveats, "Some context window sizes are assumed per-provider defaults because exact shared-catalog matches were unavailable. Those turns still count toward depth percentages, but contribute no excess-token floor or cross-provider depth comparison.")
+		plan.Caveats = append(plan.Caveats, "For some models Caveman did not know the exact context window size, so it used a default size for that provider. Those messages still count in the how-full numbers. They are left out of the count of tokens past the halfway mark and out of agent-to-agent comparisons.")
 	}
 	if len(beh.InferredWindowSources) > 0 {
-		plan.Caveats = append(plan.Caveats, "Some sessions' context grew past the assumed window (transcripts often omit a 1M-window suffix), so their window was inferred from observed context and every turn of those sessions was measured against it.")
+		plan.Caveats = append(plan.Caveats, "Some sessions grew bigger than the window size Caveman assumed (transcripts often leave out that a model has a 1M window). For those sessions Caveman assumed the next bigger window and measured every message against it.")
 	}
 
 	deadTokens, deadSkills := deadLoadSkills(cfg, beh)
@@ -232,7 +232,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	if len(rec.Repaste) > maxRecurringSinkRows {
 		cappedRec = recurringResult{Repaste: rec.Repaste[:maxRecurringSinkRows]}
 		plan.Caveats = appendUnique(plan.Caveats, fmt.Sprintf(
-			"%d additional recurring-context fingerprints below the top %d by recurring weight were omitted from the sink list; the Cave Score still counts their full weight.",
+			"Only the %[2]d biggest pieces of repeated text are listed. %[1]d smaller ones are left off the list, but the Setup Score still counts all of them.",
 			len(rec.Repaste)-maxRecurringSinkRows, maxRecurringSinkRows))
 	}
 	plan.Sinks = append(plan.Sinks, recurringSinks(cappedRec, beh, turnsPerDay)...)
@@ -251,7 +251,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	if !sectionsTimeBoxed {
 		plan.Sinks = append(plan.Sinks, claudeMDSectionSinks(cfg, beh.SessionTexts)...)
 	} else {
-		plan.Caveats = appendUnique(plan.Caveats, "CLAUDE.md section-echo findings were omitted because the shared behavioral deadline expired before that corpus pass.")
+		plan.Caveats = appendUnique(plan.Caveats, "The check for unused CLAUDE.md sections was skipped because the scan ran out of time.")
 	}
 	// Spend is computed before the practice/rank/price pass so the two sinks it
 	// feeds are ranked and priced like every other sink rather than appended
@@ -269,7 +269,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	}
 	plan.sessionOutcomes = beh.SessionOutcomes
 	if plan.Spend != nil {
-		plan.Caveats = appendUnique(plan.Caveats, "Spend is provider-counted tokens priced at the dated catalog's published rates. It is what the scanned window cost, not a projection and not an invoice; a subscription plan's marginal cost is zero.")
+		plan.Caveats = appendUnique(plan.Caveats, "Cost is the tokens your model provider counted, priced at published list prices. It covers only the period scanned. It is not a forecast and not a bill. On a subscription plan you pay nothing extra per token.")
 	}
 
 	addSectionConfigPaths(plan.Sinks, cfg)
@@ -280,7 +280,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	rankLearnSinks(plan.Sinks, days)
 	priceLearnSinks(plan.Sinks, plan.Spend, days)
 	if prefix, sessions := beh.measuredPrefix(); prefix > 0 && sessions > 0 && cfg.configTaxPerTurn() > 0 {
-		plan.Caveats = appendUnique(plan.Caveats, "Turn-1 context includes the first user prompt, so measured prefix is an upper bound of fixed prefix; median across sessions mitigates.")
+		plan.Caveats = appendUnique(plan.Caveats, "The first-message size includes your first prompt, so it can overstate how big your fixed setup is. Using the middle value across sessions keeps one long prompt from skewing it.")
 	}
 
 	plan.CaveScore = caveScore(cfg, beh, deadTokens, recurPerTurn)
@@ -288,7 +288,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	if !behaviorTimeBoxed {
 		plan.Repos = learnRepos(beh.SessionMetrics)
 	} else {
-		plan.Caveats = appendUnique(plan.Caveats, "Repository summaries were omitted because the shared behavioral deadline truncated their primary event scan.")
+		plan.Caveats = appendUnique(plan.Caveats, "Per-repository summaries were skipped because the scan ran out of time.")
 	}
 	if !behaviorTimeBoxed {
 		plan.Trends = buildLearnTrends(beh.TrendSessions, since, sinceClock())
@@ -297,20 +297,20 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	if !confirmedTimeBoxed {
 		plan.Confirmed = confirmed
 	} else {
-		plan.Caveats = appendUnique(plan.Caveats, "Applied-fix confirmations were omitted because their single shared-deadline after-metrics scan was truncated.")
+		plan.Caveats = appendUnique(plan.Caveats, "Results for fixes you already applied were skipped because the scan ran out of time.")
 	}
 	if strings.TrimSpace(repoFilter) != "" {
-		plan.Caveats = appendUnique(plan.Caveats, fmt.Sprintf("Session history was filtered by repository substring %q before behavioral detection. Config scan still reads the invoking cwd.", repoFilter))
+		plan.Caveats = appendUnique(plan.Caveats, fmt.Sprintf("Only sessions whose repository matches %q were read. The setup check still reads the folder you ran this from.", repoFilter))
 	}
 
 	if len(plan.Sinks) == 0 {
-		plan.Caveats = appendUnique(plan.Caveats, "No config-tax or behavioral sink found yet. Run caveman learn after supported agent sessions exist on disk, or from a repo with a CLAUDE.md.")
+		plan.Caveats = appendUnique(plan.Caveats, "Nothing found yet. Run caveman learn again after your agents have saved some sessions, or run it in a repo that has a CLAUDE.md.")
 	}
 	if beh.SessionsScanned == 0 {
-		plan.Caveats = appendUnique(plan.Caveats, "No local session transcripts were scanned, so behavioral findings (dumbzone, subagents, dead-skill use) are not measured.")
+		plan.Caveats = appendUnique(plan.Caveats, "No session history was found on this computer, so habits (overloaded messages, subagents, unused skills) were not measured.")
 	}
 	if behaviorTimeBoxed {
-		plan.Caveats = appendUnique(plan.Caveats, "The base behavioral scan hit its time budget, so Cave Score and behavioral findings cover partial history. Deadline-truncated repository, section-echo, and applied-fix blocks are omitted rather than zero-filled. The independent retro totals still name only sessions they measured.")
+		plan.Caveats = appendUnique(plan.Caveats, "The scan ran out of time, so the Setup Score and habits cover only part of your history. Parts cut short (per-repository summaries, unused CLAUDE.md sections, applied fixes) are left out, not shown as zero. The past-session replay still counts only sessions it fully read.")
 	}
 
 	// The retro pass is a second, budget-bounded walk so the base scan above keeps
@@ -318,12 +318,12 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	if retro.Enabled && strings.TrimSpace(repoFilter) == "" {
 		plan.Retro = s.buildLearnRetro(sourceSet, since, sinceExpr, cfg.configTaxPerTurn(), retro)
 	} else if retro.Enabled {
-		plan.Caveats = appendUnique(plan.Caveats, "Retrospective replay is omitted with --repo because its independent file walker cannot apply the repository filter without changing learn_retro.go.")
+		plan.Caveats = appendUnique(plan.Caveats, "The past-session replay was skipped because it cannot filter by repository (--repo).")
 	}
 
 	if plan.WrapMeasured = s.wrapMeasuredSince(since); plan.WrapMeasured != nil {
 		plan.WrapMeasured.WindowDays = int(windowDays(sinceExpr, "", ""))
-		plan.Caveats = appendUnique(plan.Caveats, fmt.Sprintf("Saved-so-far numbers are Caveman-counted tokens (basis: %s) over requests the proxy recorded in the window. Tokens only, no dollars. Kept apart from the could-have-saved replay: different requests, different method, never summed together.", plan.WrapMeasured.Basis))
+		plan.Caveats = appendUnique(plan.Caveats, fmt.Sprintf("Saved so far counts tokens with Caveman's own counter (%s), over requests Caveman handled in this period. Tokens only, no dollars. It is kept apart from could have saved: different requests, a different method, never added together.", plan.WrapMeasured.Basis))
 	}
 
 	if err := s.upsertSinks(plan.Sinks); err != nil {
@@ -490,13 +490,13 @@ func configSinksWithBehavior(cfg configScan, beh behaviorScan, turnsPerDay float
 		}
 		sinks = append(sinks, Sink{
 			SinkID:           "config_tax:baseline",
-			Title:            fmt.Sprintf("Measured agent config loads ~%d tokens into every turn", tax),
+			Title:            fmt.Sprintf("Your always-loaded setup (CLAUDE.md, skills, hooks) adds ~%s tokens to every message", commaInt(int64(tax))),
 			Class:            classLoadBearing,
 			Basis:            observedLocal,
 			TokensPerTurn:    int64(tax),
 			TokensPerDayRate: rate(tax, turnsPerDay),
 			Framing:          framingForward,
-			Suggestion:       "Some of this is load-bearing. The reducible parts are broken out as their own sinks below.",
+			Suggestion:       "Much of this is needed. The parts you can trim are listed as separate findings.",
 			Evidence:         evidence,
 		})
 	}
@@ -520,9 +520,9 @@ func claudeMDSink(snap *ConfigSnapshot, scope string, turnsPerDay float64) []Sin
 	if snap.Kind == "agents_md" {
 		kind = "AGENTS.md"
 	}
-	title := fmt.Sprintf("%s %s is %d lines (~%d tokens) loaded every turn", label, kind, snap.Lines, snap.Tokens)
+	title := fmt.Sprintf("%s %s is %s (~%s tokens), loaded with every message", label, kind, plural(snap.Lines, "line"), commaInt(int64(snap.Tokens)))
 	if scope == "codex" {
-		title = fmt.Sprintf("%s is %d lines (~%d tokens) loaded every turn", label, snap.Lines, snap.Tokens)
+		title = fmt.Sprintf("%s is %s (~%s tokens), loaded with every message", label, plural(snap.Lines, "line"), commaInt(int64(snap.Tokens)))
 	}
 	return []Sink{{
 		SinkID:           "claude_md_weight:" + scope,
@@ -532,7 +532,7 @@ func claudeMDSink(snap *ConfigSnapshot, scope string, turnsPerDay float64) []Sin
 		TokensPerTurn:    int64(snap.Tokens),
 		TokensPerDayRate: rate(snap.Tokens, turnsPerDay),
 		Framing:          framingForward,
-		Suggestion:       fmt.Sprintf("Trim to the sections actually used; target < %d lines.", claudeMDLineBudget),
+		Suggestion:       fmt.Sprintf("Cut it down to the sections your agent actually uses. Aim for under %d lines.", claudeMDLineBudget),
 		Evidence:         map[string]any{"lines": snap.Lines, "tokens": snap.Tokens, "path": snap.Path},
 	}}
 }
@@ -557,13 +557,13 @@ func dumbzoneSink(beh behaviorScan) []Sink {
 	}
 	return []Sink{{
 		SinkID:        "context_dumbzone",
-		Title:         fmt.Sprintf("%.0f%% of turns ran over %.0f%% of the model window", pct, dumbzoneFraction*100),
+		Title:         fmt.Sprintf("%.0f%% of messages went past %.0f%% of the model's context window", pct, dumbzoneFraction*100),
 		Class:         classBehavioral,
 		Basis:         observedLocal,
 		TokensPerTurn: 0, TokensPerDayRate: 0,
 		TokensObserved: beh.DumbzoneExcessTokens,
 		Framing:        framingHistorical,
-		Suggestion:     "Compact or split long sessions before the dumbzone; large context degrades quality well before the window limit.",
+		Suggestion:     "Start a fresh session, or compact, before you pass half the window. Answers get worse well before the window is full.",
 		Evidence:       evidence,
 	}}
 }
@@ -599,13 +599,13 @@ func deadLoadSink(deadTokens int, deadSkills []string, beh behaviorScan, turnsPe
 	}
 	return []Sink{{
 		SinkID:           "dead_load:skills",
-		Title:            fmt.Sprintf("%d skills load ~%d tokens/turn with no use detected in %d sessions", len(deadSkills), deadTokens, beh.SessionsScanned),
+		Title:            fmt.Sprintf("%s add ~%s tokens to every message, with no use seen in %s", plural(len(deadSkills), "skill"), commaInt(int64(deadTokens)), plural(beh.SessionsScanned, "session")),
 		Class:            classReducible,
 		Basis:            observedLocal,
 		TokensPerTurn:    int64(deadTokens),
 		TokensPerDayRate: rate(deadTokens, turnsPerDay),
 		Framing:          framingForward,
-		Suggestion:       "Consider gating skills with no detected use; their descriptions load every turn. (No use detected is window-bounded, not proof a skill is unneeded.)",
+		Suggestion:       "Consider turning off skills you don't use. Each skill's description loads with every message. Not seeing a skill used in these sessions doesn't prove you never need it.",
 		Evidence: map[string]any{
 			"skill_count":      len(deadSkills),
 			"sessions_scanned": beh.SessionsScanned,
@@ -647,12 +647,12 @@ func subagentSink(beh behaviorScan) []Sink {
 	}
 	return []Sink{{
 		SinkID:        "subagent_overuse",
-		Title:         fmt.Sprintf("You spawned %d subagents across %d sessions (≈%d per session that used them)", beh.TaskSpawns, beh.SessionsWithTasks, median),
+		Title:         fmt.Sprintf("You started %s across %s (about %d per session that used them)", plural(beh.TaskSpawns, "subagent"), plural(beh.SessionsWithTasks, "session"), median),
 		Class:         classBehavioral,
 		Basis:         observedLocal,
 		TokensPerTurn: 0, TokensPerDayRate: 0,
 		Framing:    framingHistorical,
-		Suggestion: "Subagents each carry their own context; for one-file lookups a direct read is cheaper. (Counts only — Caveman never asserts a spawn was unnecessary.)",
+		Suggestion: "Each subagent carries its own context. For a one-file lookup, reading the file directly is cheaper. This only counts subagents. Caveman never says one was unnecessary.",
 		Evidence: map[string]any{
 			"task_spawns":         beh.TaskSpawns,
 			"sessions_with_tasks": beh.SessionsWithTasks,
@@ -673,7 +673,7 @@ func surfaceSink(cfg configScan) []Sink {
 		Basis:         observedLocal,
 		TokensPerTurn: 0, TokensPerDayRate: 0,
 		Framing:    framingHistorical,
-		Suggestion: "SessionStart/UserPromptSubmit hooks inject their output into context each session; trimming the surface you don't use reduces per-turn overhead.",
+		Suggestion: "Hooks that run at session start or on each prompt add their output to the context. Removing the ones you don't use makes every message smaller.",
 		Evidence: map[string]any{
 			"skill_count":  len(cfg.Skills),
 			"hook_count":   cfg.HookCount,
@@ -718,9 +718,9 @@ func crossProviderSinks(rec recurringResult, beh behaviorScan) []Sink {
 			ratio := float64(deeper.median) / float64(shallower.median)
 			sinks = append(sinks, Sink{
 				SinkID: "cross_provider:depth",
-				Title:  fmt.Sprintf("On this machine, your %s sessions peaked about %.1fx deeper into the model window than %s sessions", sourceDisplayName(deeper.id), ratio, sourceDisplayName(shallower.id)),
+				Title:  fmt.Sprintf("On this computer, your %s sessions filled about %.1fx more of the context window at their peak than your %s sessions", sourceDisplayName(deeper.id), ratio, sourceDisplayName(shallower.id)),
 				Class:  classBehavioral, Basis: observedLocal, Framing: framingHistorical,
-				Suggestion: "This local median comparison may help identify which agent workflows reach deep context; it does not prove the agent caused the difference.",
+				Suggestion: "This compares typical sessions on this computer. It can hint at which agent workflows run long. It does not prove the agent caused the difference.",
 				Evidence: map[string]any{
 					"comparison": "median_session_peak_pct", "deeper_source": deeper.id,
 					"deeper_median_peak_pct": deeper.median, "deeper_sessions": deeper.sessions,
@@ -748,9 +748,9 @@ func crossProviderSinks(rec recurringResult, beh behaviorScan) []Sink {
 		sort.Strings(roots)
 		sinks = append(sinks, Sink{
 			SinkID: "cross_provider:repaste",
-			Title:  fmt.Sprintf("Recurring block %s appeared in %d agents — one cavemem offload could cover all of them", entry.Fingerprint, len(roots)),
+			Title:  fmt.Sprintf("The same text (block %s) showed up in %d agents — one move to Caveman memory could cover all of them", entry.Fingerprint, len(roots)),
 			Class:  classBehavioral, Basis: observedLocal, Framing: framingHistorical,
-			Suggestion: "Consider one shared cavemem offload after verifying a sampled locator; recurrence is window-bounded, not proof the block is unneeded.",
+			Suggestion: "Consider moving it to Caveman memory once, after checking one of the places it appears. Repeating in these sessions doesn't prove the text is unneeded.",
 			Evidence: map[string]any{
 				"fingerprint": entry.Fingerprint, "root_kinds": roots,
 				"agent_count": len(roots), "recurrence_sessions": entry.Sessions,
@@ -807,12 +807,12 @@ func caveScore(cfg configScan, beh behaviorScan, deadTokens, recurPerTurn int) C
 		ratio := float64(numerator) / float64(median)
 		cTax.Penalty = capped(wConfigTax*ratio, capConfigTax)
 		if recurPerTurn > 0 {
-			cTax.Detail = fmt.Sprintf("config %d + recurring re-paste %d tok/turn vs median context %d", tax, recurPerTurn, median)
+			cTax.Detail = fmt.Sprintf("%s tokens of setup + %s of repeated text in every message; a typical message is %s tokens", commaInt(int64(tax)), commaInt(int64(recurPerTurn)), commaInt(int64(median)))
 		} else {
-			cTax.Detail = fmt.Sprintf("config %d tok/turn vs median context %d", tax, median)
+			cTax.Detail = fmt.Sprintf("%s tokens of setup in every message; a typical message is %s tokens", commaInt(int64(tax)), commaInt(int64(median)))
 		}
 	} else {
-		cTax.Detail = "not measured (need config tax and session transcripts)"
+		cTax.Detail = "not measured (needs setup files and session history)"
 	}
 	components = append(components, cTax)
 	score -= cTax.Penalty
@@ -823,9 +823,9 @@ func caveScore(cfg configScan, beh behaviorScan, deadTokens, recurPerTurn int) C
 		cDz.Measured = true
 		dzRate := float64(beh.DumbzoneTurns) / float64(beh.Turns)
 		cDz.Penalty = capped(wDumbzone*dzRate, capDumbzone)
-		cDz.Detail = fmt.Sprintf("%d/%d turns over %.0f%% window", beh.DumbzoneTurns, beh.Turns, dumbzoneFraction*100)
+		cDz.Detail = fmt.Sprintf("%s of %s messages (%.0f%%) went past half the context window", commaInt(int64(beh.DumbzoneTurns)), commaInt(int64(beh.Turns)), dzRate*100)
 	} else {
-		cDz.Detail = "not measured (no session transcripts)"
+		cDz.Detail = "not measured (no session history)"
 	}
 	components = append(components, cDz)
 	score -= cDz.Penalty
@@ -836,9 +836,9 @@ func caveScore(cfg configScan, beh behaviorScan, deadTokens, recurPerTurn int) C
 		cDead.Measured = true
 		deadRatio := float64(deadTokens) / float64(tax)
 		cDead.Penalty = capped(wDeadLoad*deadRatio, capDeadLoad)
-		cDead.Detail = fmt.Sprintf("%d dead-skill tok of %d config tok", deadTokens, tax)
+		cDead.Detail = fmt.Sprintf("%s of the %s setup tokens are skills you never used", commaInt(int64(deadTokens)), commaInt(int64(tax)))
 	} else {
-		cDead.Detail = "not measured (need skills and session transcripts)"
+		cDead.Detail = "not measured (needs skills and session history)"
 	}
 	components = append(components, cDead)
 	score -= cDead.Penalty
@@ -852,9 +852,9 @@ func caveScore(cfg configScan, beh behaviorScan, deadTokens, recurPerTurn int) C
 			pressure = 1
 		}
 		cSub.Penalty = capped(wSubagent*pressure, capSubagent)
-		cSub.Detail = fmt.Sprintf("%d spawns over %d sessions", beh.TaskSpawns, beh.SessionsScanned)
+		cSub.Detail = fmt.Sprintf("%s started in %s", plural(beh.TaskSpawns, "subagent"), plural(beh.SessionsScanned, "session"))
 	} else {
-		cSub.Detail = "not measured (no session transcripts)"
+		cSub.Detail = "not measured (no session history)"
 	}
 	components = append(components, cSub)
 	score -= cSub.Penalty

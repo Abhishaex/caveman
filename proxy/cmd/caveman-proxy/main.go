@@ -769,11 +769,11 @@ func runLearn(logger *slog.Logger, args []string) {
 
 	switch sub {
 	case "scan":
-		scope := "local sessions"
+		scope := "your agent sessions"
 		if picked := strings.Trim(strings.Join(sources, ","), ","); picked != "" {
 			scope = picked + " sessions"
 		}
-		fmt.Fprintf(os.Stderr, "scanning %s (last %s)…\n", scope, since)
+		fmt.Fprintf(os.Stderr, "reading %s from the last %s…\n", scope, since)
 		// --retro is opt-in: without it the scan runs exactly as before. With it,
 		// both passes are independently bounded so a cold base scan cannot consume
 		// the child deadline before retro returns partial measured coverage.
@@ -801,9 +801,9 @@ func runLearn(logger *slog.Logger, args []string) {
 			}
 		}
 		if len(counts) == 0 {
-			counts = append(counts, "no sessions")
+			counts = append(counts, "none")
 		}
-		fmt.Fprintf(os.Stderr, "%s · scoring…\n", strings.Join(counts, " · "))
+		fmt.Fprintf(os.Stderr, "sessions found: %s · scoring…\n", strings.Join(counts, " · "))
 		if hasArg(args, "--write-report") {
 			out := argFlag(args, "--out", store.DefaultLearnReportPath(reportsHome))
 			if err := spend.WriteLearnHTML(plan, out); err != nil {

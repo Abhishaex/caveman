@@ -163,19 +163,19 @@ type trendMetricSpec struct {
 }
 
 var trendMetricSpecs = []trendMetricSpec{
-	{"tokens_per_session", "tokens/session", "tokens", "lower", "median", 0, func(b []trendSession) (float64, bool) {
+	{"tokens_per_session", "tokens per session", "tokens", "lower", "median", 0, func(b []trendSession) (float64, bool) {
 		return trendMedian(b, func(s trendSession) float64 { return float64(s.Tokens) })
 	}},
-	{"peak_context_pct", "peak context", "pct", "lower", "median", trendAbsBand, func(b []trendSession) (float64, bool) {
+	{"peak_context_pct", "peak context used", "pct", "lower", "median", trendAbsBand, func(b []trendSession) (float64, bool) {
 		return trendMedian(b, func(s trendSession) float64 { return float64(s.PeakPct) })
 	}},
-	{"dumbzone_turn_pct", "dumbzone turns", "pct", "lower", "pooled_share", trendAbsBand, func(b []trendSession) (float64, bool) {
+	{"dumbzone_turn_pct", "overloaded messages", "pct", "lower", "pooled_share", trendAbsBand, func(b []trendSession) (float64, bool) {
 		return trendShare(b, func(s trendSession) (float64, float64) { return float64(s.Dumbzone), float64(s.Turns) })
 	}},
-	{"first_turn_tokens", "turn-1 context", "tokens", "lower", "median", 0, func(b []trendSession) (float64, bool) {
+	{"first_turn_tokens", "first-message size", "tokens", "lower", "median", 0, func(b []trendSession) (float64, bool) {
 		return trendMedian(b, func(s trendSession) float64 { return float64(s.FirstTurn) })
 	}},
-	{"cache_read_pct", "cache reads", "pct", "higher", "pooled_share", trendAbsBand, func(b []trendSession) (float64, bool) {
+	{"cache_read_pct", "read from cache", "pct", "higher", "pooled_share", trendAbsBand, func(b []trendSession) (float64, bool) {
 		return trendShare(b, func(s trendSession) (float64, float64) { return float64(s.CacheRead), float64(s.CacheContext) })
 	}},
 	{"tool_errors_per_100_turns", "tool errors", "per_100_turns", "lower", "pooled_share", trendAbsBand, func(b []trendSession) (float64, bool) {
@@ -312,11 +312,11 @@ func buildLearnTrends(sessions []trendSession, since, now time.Time) *LearnTrend
 		Basis: learnBasis, Bucket: "iso_week_utc", CurrentWeek: isoWeekLabel(first.AddDate(0, 0, 7*current)),
 		PriorWeeks: current - priorFrom, MinSessions: trendMinSessions, DeadBandPct: trendDeadBandPct,
 		UndatedSessions: undated,
-		Note:            "Observed week-over-week change in your own sessions. A trend is not a saving and does not show what caused it.",
+		Note:            "How your own sessions changed week to week. A trend is not a saving, and it does not show what caused the change.",
 		Score: &LearnTrendScore{
 			Source:     "sessions_recomputed",
 			Components: []string{scoreKeyDumbzone, scoreKeySubagent},
-			Omitted:    "config_tax and dead_load compare today's config and are not replayed against past weeks",
+			Omitted:    "instruction size and unused skills are judged on today's setup, so they are not re-scored for past weeks",
 		},
 	}
 	for i, b := range buckets {
@@ -487,11 +487,28 @@ func trendFmt(v *float64, unit string) string {
 	case "pct":
 		return strings.TrimSuffix(fmt.Sprintf("%.1f", *v), ".0") + "%"
 	case "per_100_turns":
-		return strings.TrimSuffix(fmt.Sprintf("%.1f", *v), ".0") + " / 100 turns"
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", *v), ".0") + " per 100 messages"
 	case "points":
-		return fmt.Sprintf("−%.0f pts", *v)
+		return fmt.Sprintf("−%.0f points", *v)
 	}
 	return fmt.Sprintf("%g", *v)
+}
+
+// shortDate renders YYYY-MM-DD as "Sep 21"; anything else passes through.
+func shortDate(day string) string {
+	t, err := time.Parse("2006-01-02", day)
+	if err != nil {
+		return day
+	}
+	return t.Format("Jan 2")
+}
+
+// weekName is the plain label for a week: "week of Sep 21".
+func weekName(w LearnTrendWeek) string {
+	if w.Start == "" {
+		return w.Week
+	}
+	return "week of " + shortDate(w.Start)
 }
 
 // trendSparkSVG draws one metric's weekly series: a polyline broken at null
@@ -545,9 +562,9 @@ func trendSparkSVG(series []*float64, current int, prior *float64, weeks []Learn
 		fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#b4b3ae" stroke-width="1.5" stroke-dasharray="2 2"/>`, x(i-1), y(*series[i-1]), x(i), y(*series[i]))
 	}
 	for i, v := range series {
-		label := weeks[i].Week
+		label := weekName(weeks[i])
 		if v == nil {
-			fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="2" fill="none" stroke="#cfcdc7"><title>%s · n=%d · insufficient data</title></circle>`, x(i), h-pad, template.HTMLEscapeString(label), weeks[i].Sessions)
+			fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="2" fill="none" stroke="#cfcdc7"><title>%s · %s · not enough data</title></circle>`, x(i), h-pad, template.HTMLEscapeString(label), plural(weeks[i].Sessions, "session"))
 			continue
 		}
 		r, fill, stroke := 2.5, "#9b9a97", "none"
@@ -555,9 +572,13 @@ func trendSparkSVG(series []*float64, current int, prior *float64, weeks []Learn
 			r, fill = 3.5, "#37352f"
 		}
 		if weeks[i].InProgress {
-			fill, stroke, label = "#fff", "#b4b3ae", label+" (in progress)"
+			fill, stroke, label = "#fff", "#b4b3ae", label+" (still running)"
 		}
-		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" stroke="%s"><title>%s · %s · n=%d</title></circle>`, x(i), y(*v), r, fill, stroke, template.HTMLEscapeString(label), template.HTMLEscapeString(trendFmt(v, unit)), weeks[i].Sessions)
+		sessions := ""
+		if weeks[i].Sessions > 0 {
+			sessions = " · " + plural(weeks[i].Sessions, "session")
+		}
+		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" stroke="%s"><title>%s · %s%s</title></circle>`, x(i), y(*v), r, fill, stroke, template.HTMLEscapeString(label), template.HTMLEscapeString(trendFmt(v, unit)), sessions)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String()) // every interpolated string above is escaped or numeric
@@ -578,13 +599,13 @@ func trendCards(t *LearnTrends) []trendCard {
 	for _, m := range t.Metrics {
 		c := trendCard{
 			Label: m.Label, Value: trendFmt(m.Current, m.Unit), Prior: trendFmt(m.Prior, m.Unit),
-			Direction: strings.ReplaceAll(m.Direction, "_", " "), N: m.CurrentSessions,
+			Direction: strings.Replace(m.Direction, "insufficient_data", "not enough data", 1), N: m.CurrentSessions,
 			SVG: trendSparkSVG(m.Series, cur, m.Prior, t.Weeks, m.Unit, 220),
 		}
 		switch {
 		case m.Unit == "pct" && m.Current != nil && m.Prior != nil:
 			// Share metrics move in percentage points; a percent of a percent overstates.
-			c.Delta = strings.TrimSuffix(fmt.Sprintf("%+.1f", *m.Current-*m.Prior), ".0") + "pp"
+			c.Delta = strings.TrimSuffix(fmt.Sprintf("%+.1f", *m.Current-*m.Prior), ".0") + " points"
 		case m.DeltaPct != nil:
 			c.Delta = fmt.Sprintf("%+.0f%%", *m.DeltaPct)
 		}
@@ -605,13 +626,22 @@ func trendScoreSVG(history []LearnTrendScorePoint) template.HTML {
 	weeks := make([]LearnTrendWeek, len(history))
 	for i, p := range history {
 		v := float64(p.Score)
-		series[i], weeks[i] = &v, LearnTrendWeek{Week: p.Date}
+		series[i], weeks[i] = &v, LearnTrendWeek{Week: shortDate(p.Date)}
 	}
 	return trendSparkSVG(series, len(history)-1, nil, weeks, "", 600)
 }
 
 var trendsTemplate = template.Must(template.New("trends").Funcs(template.FuncMap{
 	"cards": trendCards, "scoreSVG": trendScoreSVG, "comma": func(v int64) string { return commaInt(v) },
+	"weekName": weekName, "shortDate": shortDate, "plural": plural,
+	"currentWeek": func(t *LearnTrends) string {
+		for _, w := range t.Weeks {
+			if w.Week == t.CurrentWeek {
+				return weekName(w)
+			}
+		}
+		return t.CurrentWeek
+	},
 	"signed": func(v int64) string {
 		if v > 0 {
 			return "+" + commaInt(v)
@@ -630,29 +660,29 @@ var trendsTemplate = template.Must(template.New("trends").Funcs(template.FuncMap
 .tmov li{margin:3px 0}
 </style>
 <h2>Trends</h2>
-<p class="note">{{.Note}} Per UTC ISO week: medians across sessions, shares pooled across turns. The bold dot is {{.CurrentWeek}}, compared with the pooled {{.PriorWeeks}} weeks before it (dashed line). Weeks with fewer than {{.MinSessions}} sessions show as insufficient data. Changes under {{printf "%.0f" .DeadBandPct}}% count as flat. Tokens only, no dollars.</p>
+<p class="note">{{.Note}} Weeks run Monday to Sunday (UTC). Token counts use the middle session of each week; percentages count all messages together. The bold dot is the {{currentWeek .}}, compared with the {{.PriorWeeks}} weeks before it taken together (dashed line). Weeks with fewer than {{.MinSessions}} sessions are too small to show. Changes under {{printf "%.0f" .DeadBandPct}}% count as flat. Tokens only, no dollars.</p>
 <div class="tgrid">
 {{range cards .}}
   <div class="tcard">
     <div class="tl"><span>{{.Label}}</span><span class="pill {{.Tone}}">{{.Direction}}</span></div>
     <div class="tv">{{.Value}}</div>
     {{.SVG}}
-    <div class="tp">prior {{.Prior}}{{if .Delta}} · {{.Delta}}{{end}} · n={{.N}}</div>
+    <div class="tp">before: {{.Prior}}{{if .Delta}} · {{.Delta}}{{end}} · {{plural .N "session"}}</div>
   </div>
 {{end}}
 </div>
-<div class="tweeks">{{range .Weeks}}<span{{if or .InsufficientData .InProgress}} class="ins"{{end}} title="{{.Start}}{{if .InProgress}} · in progress{{else if .Partial}} · partial week{{end}}">{{.Week}}{{if .InProgress}} (in progress){{else if .Partial}}*{{end}} n={{.Sessions}}</span>{{end}}</div>
-<p class="fine">* partial week (cut by the window start). The week in progress is drawn hollow and never drives the comparison. "score lost to habits" recomputes only the dumbzone and subagent components per week; {{.Score.Omitted}}.{{if .UndatedSessions}} {{.UndatedSessions}} sessions had no timestamps and are not bucketed.{{end}}</p>
+<div class="tweeks">{{range .Weeks}}<span{{if or .InsufficientData .InProgress}} class="ins"{{end}} title="{{.Start}}{{if .InProgress}} · still running{{else if .Partial}} · partial week{{end}}">{{shortDate .Start}}{{if .InProgress}} (still running){{else if .Partial}}*{{end}} · {{plural .Sessions "session"}}</span>{{end}}</div>
+<p class="fine">* Only part of this week falls inside the period scanned. The current week is drawn hollow and is never used for the comparison. “Score lost to habits” re-scores only overloaded messages and subagent use for each week; {{.Score.Omitted}}.{{if .UndatedSessions}} {{plural .UndatedSessions "session"}} had no date, so they are not in any week.{{end}}</p>
 {{with .Score}}{{if .History}}{{$svg := scoreSVG .History}}{{if $svg}}
 <div class="dcard" style="margin-top:16px">
-  <div class="kicker">Cave Score across saved reports · source: {{.HistorySource}}</div>
+  <div class="kicker">Setup Score across your saved reports</div>
   {{$svg}}
-  <div class="tweeks">{{range .History}}<span>{{.Date}} {{.Score}}</span>{{end}}</div>
+  <div class="tweeks">{{range .History}}<span>{{shortDate .Date}}: {{.Score}}</span>{{end}}</div>
 </div>
 {{end}}{{end}}{{end}}
 {{with .Movers}}
 <div class="dcard" style="margin-top:16px">
-  <div class="kicker">Sink movers since {{.Since}} ({{.Days}}d) · tokens per turn · source: {{.Source}}</div>
+  <div class="kicker">Biggest changes since your report of {{shortDate .Since}} ({{plural .Days "day"}} ago) · tokens per message</div>
   {{if .Grew}}<div class="tp">grew</div><ul class="tmov">{{range .Grew}}<li>{{.Title}} <span class="tp">{{signed .DeltaTokensPerTurn}} · {{.Status}}</span></li>{{end}}</ul>{{end}}
   {{if .Shrank}}<div class="tp" style="margin-top:8px">shrank</div><ul class="tmov">{{range .Shrank}}<li>{{.Title}} <span class="tp">{{signed .DeltaTokensPerTurn}} · {{.Status}}</span></li>{{end}}</ul>{{end}}
 </div>
