@@ -222,8 +222,8 @@ caveman learn --repo my-project
 caveman learn --json
 caveman learn implement codex --prompt "focus on config fixes"
 caveman learn apply claude_md_weight:project --dry-run
-caveman learn simulate claude_md_weight:project recurring_context:abc
-caveman learn applied claude_md_weight:project --fix-kind config_trim --note "approved and re-measured"
+caveman learn simulate claude_md_weight:project recurring_context:repaste:<fingerprint>
+caveman learn applied claude_md_weight:project --fix-kind claude_md_weight --note "approved and re-measured"
 ```
 
 Output formats include plain text, JSON, and Markdown. `--all` adds every sink,
