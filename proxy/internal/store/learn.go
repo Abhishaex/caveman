@@ -69,6 +69,7 @@ type behaviorScan struct {
 	SessionTexts           []sessionTextObservation
 	SessionMetrics         []learnSessionMetric
 	SessionOutcomes        []sessionOutcome
+	TrendSessions          []trendSession
 	SubagentSpend          subagentSpendTracker
 	Procedures             procedureMiner
 	Spend                  spendAccumulator
@@ -283,6 +284,9 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 		plan.Repos = learnRepos(beh.SessionMetrics)
 	} else {
 		plan.Caveats = appendUnique(plan.Caveats, "Repository summaries were omitted because the shared behavioral deadline truncated their primary event scan.")
+	}
+	if !behaviorTimeBoxed {
+		plan.Trends = buildLearnTrends(beh.TrendSessions, since, sinceClock())
 	}
 	confirmed, confirmedTimeBoxed := s.confirmedFixes(cfg, sourceSet, repoFilter, deadline)
 	if !confirmedTimeBoxed {
@@ -1085,6 +1089,7 @@ func mergeBehaviorScan(dst, src *behaviorScan) {
 	}
 	dst.SessionMetrics = append(dst.SessionMetrics, src.SessionMetrics...)
 	dst.SessionOutcomes = append(dst.SessionOutcomes, src.SessionOutcomes...)
+	dst.TrendSessions = append(dst.TrendSessions, src.TrendSessions...)
 	dst.SubagentSpend.merge(src.SubagentSpend)
 	dst.Procedures.merge(src.Procedures)
 	dst.Spend.merge(src.Spend)
