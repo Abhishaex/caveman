@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -172,16 +173,22 @@ func buildLearnDigest(plan LearnPlan) LearnDigest {
 // suffix is a hash of user data (a repeated block, a procedure's step
 // sequence, a memory file's path); the family is what the cloud needs, the
 // hash is not.
+// digestFingerprint matches fileFingerprint's output: 8 hex characters.
+var digestFingerprint = regexp.MustCompile(`^[0-9a-f]{8}$`)
+
 func digestSinkID(sinkID string) string {
 	for _, prefix := range []string{"recurring_context:repaste:", "procedure_repeat:", "learning_loop:"} {
 		if strings.HasPrefix(sinkID, prefix) {
 			return strings.TrimSuffix(prefix, ":") + ":*"
 		}
 	}
-	// memory_health:<kind>:<scope> scopes are file or memory-dir path hashes.
-	if kind, ok := strings.CutPrefix(sinkID, "memory_health:"); ok {
-		kind, _, _ = strings.Cut(kind, ":")
-		return "memory_health:" + kind + ":*"
+	// memory_health:<kind>:<scope>: a file or memory-dir path fingerprint is
+	// stripped; a named scope (duplicate_rules:claude) is not user data and
+	// keeps distinct findings distinct.
+	if rest, ok := strings.CutPrefix(sinkID, "memory_health:"); ok {
+		if kind, scope, ok := strings.Cut(rest, ":"); ok && digestFingerprint.MatchString(scope) {
+			return "memory_health:" + kind + ":*"
+		}
 	}
 	return sinkID
 }

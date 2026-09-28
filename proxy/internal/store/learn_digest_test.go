@@ -120,6 +120,8 @@ func TestDigestSinkIDStripsUserDataHashes(t *testing.T) {
 		"memory_health:memory_truncation:9f8e7d6c":   "memory_health:memory_truncation:*",
 		"recurring_context:repaste:4edfc5c7890a26d5": "recurring_context:repaste:*",
 		"claude_md_weight:project":                   "claude_md_weight:project",
+		"memory_health:duplicate_rules:claude":       "memory_health:duplicate_rules:claude",
+		"memory_health:duplicate_rules:codex":        "memory_health:duplicate_rules:codex",
 	} {
 		if got := digestSinkID(in); got != want {
 			t.Errorf("digestSinkID(%q) = %q, want %q", in, got, want)
