@@ -43,7 +43,7 @@ right-hand column; the tables further down use them too.
 | how full sessions get | Each session's peak share of the context window. | `context_depth`, `peak_context_pct` |
 | first-message size | What a session sends with its first message: your setup plus your first prompt. | `first_turn_tokens`, `measured_prefix_tokens` |
 | Caveman memory (cavemem) | Caveman's local memory store. The agent recalls a short version of the text when it needs it, instead of pasting it again. | `cavemem_offload` |
-| read from cache | Share of input the provider served from its prompt cache, which costs about a tenth of list price. | `cache_read_pct` |
+| read from cache | Share of input the provider served from its prompt cache, which costs less than list price. How much less varies by model: usually a tenth of list price or less. | `cache_read_pct` |
 | input really costs | Your input price per million tokens after caching, and its share of list price. | `effective_input_usd_per_mtok`, `effective_input_multiplier` |
 | no price | A model missing from Caveman's price list. Its tokens are left out, so the real total is higher. | `unpriced` |
 | points | The change in a percentage: 15% to 13% is −2 points. | percentage points |
