@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { hardenedGitArgs, hardenedGitEnv } from "./git-safe.js";
+import { maybeSpawnAutopilot } from "./learn-autopilot.js";
 
 type NativeAgent = "claude" | "codex" | "hermes" | "gemini" | "opencode" | "pi";
 type NativePolicyMode = "record" | "safe" | "max";
@@ -427,6 +428,7 @@ async function main(): Promise<void> {
   const rawName = bounded(event.hook_event_name ?? event.event_name ?? event.event ?? process.argv[4]);
   const mapped = agent === "gemini" && rawName ? ({ BeforeAgent: "UserPromptSubmit", BeforeTool: "PreToolUse", AfterTool: "PostToolUse", BeforeModel: "ModelBefore", AfterModel: "ModelAfter", PreCompress: "PreCompact", AfterAgent: "Stop" } as Record<string, string>)[rawName] ?? rawName : rawName;
   const eventName = mapped && EVENTS.has(mapped) ? mapped : "Unknown";
+  if (eventName === "SessionEnd") maybeSpawnAutopilot();
   if (eventName === "SessionStart" || eventName === "PostCompact") {
     delegateToFullCLI(raw, agent);
     return;

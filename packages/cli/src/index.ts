@@ -36,6 +36,7 @@ import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, verif
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { PROFILES, type AgentProfile } from "./agents.generated.js";
+import { autopilotStatusText, claimLearnNudge, maybeSpawnAutopilot, runAutopilot } from "./learn-autopilot.js";
 import {
   BINARY_RELEASE,
   BINARY_RELEASE_BASE_DEFAULT,
@@ -14470,6 +14471,7 @@ async function nativeHook(argv: string[]) {
   if (sessionId) entry.host_session_id = sessionId;
   if (toolName) entry.tool_name = toolName;
   if (cwd) entry.cwd_sha256 = `sha256:${createHash("sha256").update(cwd).digest("hex")}`;
+  if (normalizedEvent === "SessionEnd") maybeSpawnAutopilot();
   // SessionStart revives a missing local proxy, but native routing points every
   // LATER turn of the session at that proxy too. Current proxies never expire,
   // but crashes and older binaries can still leave a dead base URL. A plain
@@ -14530,9 +14532,15 @@ async function nativeHook(argv: string[]) {
   // it before provider forwarding. Generated structure/order are byte-stable.
   const stableContext = [coreContext, marker].filter(Boolean).join("\n");
   const compactContext = [coreContext, runtimeContext, marker].filter(Boolean).join("\n");
-  if (normalizedEvent === "SessionStart" && agent !== "hermes" && stableContext) {
+  // systemMessage is the user-visible channel on Claude/Codex/Gemini SessionStart;
+  // additionalContext would put the nudge in model context instead.
+  const learnNudge = normalizedEvent === "SessionStart" && (agent === "claude" || agent === "codex" || agent === "gemini")
+    ? claimLearnNudge(boundedHookString(event.source))
+    : undefined;
+  if (normalizedEvent === "SessionStart" && agent !== "hermes" && (stableContext || learnNudge)) {
     process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: stableContext },
+      ...(learnNudge ? { systemMessage: learnNudge } : {}),
+      ...(stableContext ? { hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: stableContext } } : {}),
     }));
   } else if (normalizedEvent === "PostCompact" && agent !== "hermes" && compactContext) {
     process.stdout.write(JSON.stringify({
@@ -16759,6 +16767,7 @@ function learnUsage(): void {
   --json|--md   machine-readable or detailed Markdown output
   implement     open Claude Code or Codex to review and fix findings
   apply         prepare one finding for consent-gated editing
+  autopilot     [status|on|off] background refresh after sessions end
 
   savings       what applied fixes returned, grouped by how it was measured
   experiment    prove a change with an on/off holdout over your own sessions
@@ -16775,6 +16784,19 @@ function learnUsage(): void {
                 sum counterfactual scale over scanned history
   --repo <substring>
                 filter sessions before analysis`);
+}
+
+// learnAutopilot: status/on/off for the SessionEnd background refresh. `run`
+// is the detached child the native hook spawns (see learn-autopilot.ts).
+function learnAutopilot(rest: string[]): void {
+  const sub = rest[0] ?? "status";
+  if (sub === "run") {
+    process.exitCode = runAutopilot(proxyBin());
+    return;
+  }
+  if (sub === "on" || sub === "off") mutateRawConfig((out) => { out.learnAutopilot = sub === "on"; });
+  else if (sub !== "status") return commandUsage("learn autopilot [status|on|off]");
+  process.stdout.write(autopilotStatusText());
 }
 
 function learnImplementUsage(): void {
@@ -16887,6 +16909,7 @@ async function learn(rest: string[]) {
   const sub = rest[0];
   if (sub === "--help" || sub === "-h" || sub === "help") return learnUsage();
   if (sub === "implement") return learnImplement(rest.slice(1));
+  if (sub === "autopilot") return learnAutopilot(rest.slice(1));
   if (sub === "export" || sub === "reconcile" || sub === "experiment") {
     const rawText = proxyExecLearn(["learn", ...rest], false);
     if (rest.includes("--json")) {
