@@ -16,9 +16,9 @@ func TestCostChartBlendsEachModelsCatalogCachePrice(t *testing.T) {
 		}
 	}
 	for label, want := range map[string]string{
-		"Fable 5.1": "$1.23/MTok in", // 1.225
-		"Opus 5.5":  "$0.58/MTok in", // 0.4 + 0.9*0.20
-		"Sonnet 5":  "$0.38/MTok in", // 0.2 + 0.9*0.20
+		"Fable 5.1": "$1.23 per 1M input", // 1.225
+		"Opus 5.5":  "$0.58 per 1M input", // 0.4 + 0.9*0.20
+		"Sonnet 5":  "$0.38 per 1M input", // 0.2 + 0.9*0.20
 	} {
 		if rates[label] != want {
 			t.Errorf("%s rate = %q, want %q (all rates: %v)", label, rates[label], want, rates)
