@@ -425,7 +425,7 @@ caveman learn implement   # hand the fixes to Claude Code or Codex, one diff at 
 **It run itself.** Once caveman is on your agent (`caveman claude`, `caveman codex`, …), learn re-scans quietly after a session ends. Low priority, at most every 6 hours, never makes the session wait. When something new and heavy shows up, your next session opens with one line, one time:
 
 ```
-caveman learn: new token sink — Project CLAUDE.md is 423 lines (~9699 tokens) loaded every turn (~9.7k tokens/turn). Run `caveman learn` to review.
+caveman learn: new token sink — Project CLAUDE.md is 423 lines (~9699 tokens) loaded every turn (~9.7k tokens/turn, inferred). Run `caveman learn` to review.
 ```
 
 Nothing new, nothing said. `caveman learn autopilot off` if you rather run it by hand.
@@ -435,12 +435,13 @@ Nothing new, nothing said. `caveman learn autopilot off` if you rather run it by
 **It say if you getting better.** Week over week, from your own sessions, first run included. Real output from the maintainer's machine, bad news left in:
 
 ```
-trend 6w  tokens/session  ▄▂▃▁█┊▃  +187% vs prior 4w · worse  (n=928)
-          peak context    ▁▂▄▄█┊▃  +15pp vs prior 4w · worse  (n=928)
-          dumbzone turns  ▁▂▄▄▅┊█  +5.6pp vs prior 4w · worse  (n=928)
+trend 6w  tokens/session  ▃▂▃▁█┊▂  +187% vs prior 4w · worse  (n=928)
+          peak context    ▁▂▄▄█┊▆  +15pp vs prior 4w · worse  (n=928)
+          dumbzone turns  ▁▂▄▄▄┊█  +5.6pp vs prior 4w · worse  (n=928)
+          a trend is not a saving and does not show cause
 ```
 
-Medians, not averages. Weeks under 5 sessions say "not enough data" instead of guessing. A trend is not a saving, and learn never pretends it is.
+Medians, not averages. Weeks under 5 sessions say "not enough data" instead of guessing. The dotted bar is the week still in progress: shown, never compared.
 
 **It prove the fix, or undo it.** `implement` re-measures after every change and reverts anything that didn't lower tokens per turn. Some fixes can't be re-counted, like a new skill that only pays off when it gets used. For those, `caveman learn experiment` runs it on for a stretch and off for a stretch over your own sessions, and gives no verdict before 5 sessions each way. Caveman never makes your agent dumber to make it cheaper.
 
