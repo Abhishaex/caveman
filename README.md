@@ -437,9 +437,9 @@ Nothing new, nothing said. `caveman learn autopilot off` if you rather run it by
 **It say if you getting better.** Week over week, from your own sessions, first run included. Real output from the maintainer's machine, bad news left in:
 
 ```
-last 6 weeks  tokens per session   ▄▂▃▁█┊▃  +187% · worse
-              peak context used    █▆▆▁▅┊▂  +1 point · flat
-              overloaded messages  ▂█▂▁▁┊▃  -2.1 points · improved
+last 6 weeks  tokens per session   ▄▂▃▁█┊▄  +185% · worse
+              peak context used    ▁▁▄▅█┊▁  +4 points · worse
+              overloaded messages  ▁▂▃▇█┊▅  +2.9 points · worse
               week of Sep 21 (928 sessions) vs the 4 weeks before
               a trend is not a saving, and it does not show the cause
 ```
