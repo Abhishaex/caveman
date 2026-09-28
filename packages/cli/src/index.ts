@@ -61,6 +61,7 @@ import {
 } from "./agent-mcp.js";
 import { portableInvocation } from "./portable-command.js";
 import { hardenedGitArgs, hardenedGitEnv } from "./git-safe.js";
+import { learnTrendLines, learnTrendTable, type LearnTrends } from "./learn-trends.js";
 import { publishedForwardHeadersOf, publishedUpstreamsOf, unforwardedProviderHeaders, verifiedProviderRoute, type PublishedUpstreams } from "./provider-routing.js";
 import { openClawRequestCompatibilityIssue, preserveOpenClawProviderCompat } from "./openclaw-provider-compat.js";
 import { parseStatsOptions, renderStatsSummary, STATS_HELP, STATS_USAGE, type StatsCLIReport } from "./stats-cli.js";
@@ -16048,6 +16049,7 @@ type LearnPlan = {
   confirmed?: LearnConfirmed[];
   portfolio?: LearnPortfolio;
   repos?: LearnRepo[];
+  trends?: LearnTrends;
 };
 
 // LearnRetro mirrors the proxy's optional `retro` block (learn scan --retro):
@@ -16166,6 +16168,7 @@ export type LearnTuiViewModel = {
   scope: string;
   sessions: string;
   diff?: string;
+  trend?: string[];
   status?: string;
   moves: LearnSummaryMove[];
   protected?: string;
@@ -16285,6 +16288,7 @@ export function buildLearnTuiModel(
   const protectedSink = plan.sinks.find((sink) => sink.class === "load_bearing");
   const confirmed = plan.confirmed?.length ?? 0;
   const diffText = learnDiffText(options.diff);
+  const trend = learnTrendLines(plan.trends);
   const status = sessions === 0
     ? LEARN_EMPTY
     : !recurring
@@ -16295,6 +16299,7 @@ export function buildLearnTuiModel(
     scope: "local setup · inferred · not billed spend · separate from org Cave Score",
     sessions: learnSourceLine(plan, sessions),
     ...(diffText ? { diff: diffText } : {}),
+    ...(trend.length ? { trend } : {}),
     ...(status ? { status } : {}),
     moves: learnSummaryMoves(plan),
     ...(protectedSink
@@ -16357,6 +16362,7 @@ export function renderLearnPlan(
       lines.push(...(verbose ? renderLearnDetailedRows(plan, markdown) : ["top moves", ...renderLearnSummaryRows(plan)]), "");
     }
     lines.push(`${sessions} sessions scanned · no block repeated across ≥3 sessions yet — keep running \`caveman claude\`, then re-run \`caveman learn\``);
+    lines.push(...(verbose ? [] : learnTrendLines(plan.trends)));
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
   } else {
     lines.push(markdown
@@ -16374,10 +16380,13 @@ export function renderLearnPlan(
     }
     const diffText = learnDiffText(options.diff);
     if (diffText) lines.push(diffText);
+    lines.push(...(verbose ? [] : learnTrendLines(plan.trends)));
     const spendLines = renderLearnSpendLines(plan.spend, markdown);
     if (spendLines.length > 0) lines.push("", ...spendLines);
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
     if (verbose) {
+      const trendTable = learnTrendTable(plan.trends, markdown);
+      if (trendTable.length > 0) lines.push("", ...trendTable);
       lines.push("", ...renderLearnDetailedRows(plan, markdown), "", LEARN_DETAILED_NEXT);
     } else {
       const protectedSink = plan.sinks.find((sink) => sink.class === "load_bearing");

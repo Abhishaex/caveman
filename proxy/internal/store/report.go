@@ -616,6 +616,7 @@ var learnTemplate = template.Must(template.New("learn").Funcs(template.FuncMap{
 	"human":         humanTokens,
 	"observedBasis": observedTokenBasis,
 	"topSinks":      topSinks,
+	"trends":        learnTrendsHTML,
 	"classClass": func(class string) string {
 		switch class {
 		case classReducible:
@@ -850,6 +851,8 @@ ul.caveats li{margin:6px 0}
   <div class="prop"><span class="k">{{.Key}}</span><span>{{if .Measured}}{{.Detail}}{{else}}not measured{{end}}</span><span class="v">{{if .Measured}}−{{.Penalty}}{{else}}n/a{{end}}</span></div>
   {{end}}
 </div>
+
+{{trends .Plan.Trends}}
 
 <h2>Token Sinks</h2>
 <p class="note">Ranked by daily-equivalent magnitude. Behavioral token totals remain historical observations, never rates. Open a row for evidence and suggested fix. Load-bearing rows are listed for honesty and never touched.</p>

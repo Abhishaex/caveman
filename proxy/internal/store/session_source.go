@@ -280,6 +280,9 @@ func (c *sessionEventConsumer) finish() {
 	if c.metric.Turns > 0 && strings.TrimSpace(c.metric.Repo) != "" {
 		c.behavior.SessionMetrics = append(c.behavior.SessionMetrics, c.metric)
 	}
+	if trend, ok := c.trendSession(); ok {
+		c.behavior.TrendSessions = append(c.behavior.TrendSessions, trend)
+	}
 	c.behavior.ToolPortfolio.merge(c.toolPortfolio)
 	if c.subagentSpend.SideTurns > 0 || c.subagentSpend.MainTurns > 0 {
 		c.subagentSpend.sessions = 1

@@ -687,6 +687,7 @@ func runLearn(logger *slog.Logger, args []string) {
 		if err != nil {
 			fatalJSON(logger, err)
 		}
+		store.AttachLearnTrendHistory(&plan, home, time.Now())
 		fmt.Fprintf(os.Stderr, "claude-code %d · codex %d · scoring…\n",
 			plan.SessionsBySource["claude"], plan.SessionsBySource["codex"])
 		if hasArg(args, "--write-report") {
@@ -707,6 +708,7 @@ func runLearn(logger *slog.Logger, args []string) {
 		if err != nil {
 			fatalJSON(logger, err)
 		}
+		store.AttachLearnTrendHistory(&plan, home, time.Now())
 		out := argFlag(args, "--out", store.DefaultLearnReportPath(home))
 		if err := spend.WriteLearnHTML(plan, out); err != nil {
 			fatalJSON(logger, err)
