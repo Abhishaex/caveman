@@ -332,3 +332,16 @@ func TestLearnScanReportsHomeLeavesCanonicalReportAlone(t *testing.T) {
 		t.Fatalf("--reports-home touched canonical reports: %v", entries)
 	}
 }
+
+func TestLearnExperimentStartSkipsFlagValuesForLabel(t *testing.T) {
+	learnWireEnv(t)
+	var out struct {
+		Label   string `json:"label"`
+		FixKind string `json:"fix_kind"`
+		Note    string `json:"note"`
+	}
+	learnJSON(t, &out, "experiment", "start", "--note", "trim", "--fix-kind", "claude_md_weight", "mylabel")
+	if out.Label != "mylabel" || out.FixKind != "claude_md_weight" {
+		t.Fatalf("experiment start = %+v", out)
+	}
+}
