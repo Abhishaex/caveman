@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/JuliusBrussee/caveman/shared/platform/catalog"
 	"time"
 )
 
@@ -276,25 +278,20 @@ func commaInt(v int64) string {
 	return b.String()
 }
 
-// Input-token list prices in $/MTok, checked 2026-08 (Claude from Anthropic
-// docs; GPT-5.6 after OpenAI's 2026-07-30 Terra/Luna cuts). Used only for the
-// clearly-labeled cost chart in the HTML report: list-price arithmetic over
-// the forward rate at an assumed cache mix, never a bill, a savings claim, or
-// a verified figure.
+// Models in the HTML report's cost illustration. Input and cache-read prices
+// come from the embedded provider catalog; a model the catalog cannot price is
+// left out rather than drawn at a guessed rate. Used only for the clearly
+// labelled chart: price arithmetic over the forward rate at an assumed cache
+// mix, never a bill, a savings claim, or a verified figure.
 var costModels = []struct {
-	family string
-	label  string
-	rate   float64
+	family, label, provider, model string
 }{
-	// Input list prices per MTok, checked 2026-09-28 against
-	// platform.claude.com/docs/en/about-claude/pricing and
-	// developers.openai.com/api/docs/pricing.
-	{"claude", "Fable 5.1", 10.0},
-	{"claude", "Opus 5.5", 4.0},
-	{"claude", "Sonnet 5", 2.0},
-	{"gpt56", "Astra", 10.0},
-	{"gpt56", "Sol", 2.0},
-	{"gpt56", "Luna", 0.10},
+	{"claude", "Fable 5.1", "anthropic", "claude-fable-5-1"},
+	{"claude", "Opus 5.5", "anthropic", "claude-opus-5-5"},
+	{"claude", "Sonnet 5", "anthropic", "claude-sonnet-5"},
+	{"gpt56", "Astra", "openai", "gpt-6-astra"},
+	{"gpt56", "Sol", "openai", "gpt-6-sol"},
+	{"gpt56", "Luna", "openai", "gpt-6-luna"},
 }
 
 func fmtUSD(usd float64) string {
@@ -315,16 +312,13 @@ func fmtRate(rate float64) string {
 	return fmt.Sprintf("$%.2f per 1M input", rate)
 }
 
-// The cost chart assumes a 90% cache hit rate. Cache reads bill at 10% of the
-// input list price on both Anthropic and OpenAI, so the effective rate is
-// 0.1 + 0.9*0.1 = 0.19x list. An assumption, not this user's measured mix.
-const (
-	chartCacheHitRate      = 0.90
-	chartCacheReadDiscount = 0.10
-)
+// The cost chart assumes 90% of input is read from cache, billed at the model's
+// own catalog cache-read price (0.025x-0.1x list depending on the model). An
+// assumption, not this user's measured mix.
+const chartCacheHitRate = 0.90
 
-func cachedRate(list float64) float64 {
-	return list * ((1 - chartCacheHitRate) + chartCacheHitRate*chartCacheReadDiscount)
+func cachedRate(input, cacheRead float64) float64 {
+	return (1-chartCacheHitRate)*input + chartCacheHitRate*cacheRead
 }
 
 // costRow is one bar in the 30-day cost chart.
@@ -343,7 +337,7 @@ type costFamily struct {
 }
 
 // costFamilies prices the total forward tokens/day rate over 30 days at each
-// model's input list price under the chart's 90%-cache assumption, grouped by
+// model's catalog input and cache-read prices under the chart's 90%-cache assumption, grouped by
 // provider family for the chart's tab switch. Bar widths share one scale
 // across families (relative to the most expensive model anywhere) so
 // switching tabs stays comparable.
@@ -352,20 +346,33 @@ func costFamilies(sinks []Sink) []costFamily {
 	if total <= 0 {
 		return nil
 	}
+	type priced struct {
+		family, label string
+		rate          float64
+	}
+	var models []priced
 	var max float64
 	for _, m := range costModels {
-		if m.rate > max {
-			max = m.rate
+		price, version := catalog.Price(m.provider, m.model)
+		if strings.HasPrefix(version, "unpriced") || price.InputPerMillion <= 0 {
+			continue
 		}
+		rate := cachedRate(price.InputPerMillion, price.CacheReadPerMillion)
+		models = append(models, priced{m.family, m.label, rate})
+		if rate > max {
+			max = rate
+		}
+	}
+	if max <= 0 {
+		return nil
 	}
 	claude := costFamily{ID: "claude", Name: "Claude"}
 	gpt := costFamily{ID: "gpt56", Name: "GPT-6"}
-	for _, m := range costModels {
-		rate := cachedRate(m.rate)
+	for _, m := range models {
 		row := costRow{
 			Label: m.label,
-			Rate:  fmtRate(rate),
-			USD:   fmtUSD(float64(total) * 30 / 1e6 * rate),
+			Rate:  fmtRate(m.rate),
+			USD:   fmtUSD(float64(total) * 30 / 1e6 * m.rate),
 			Pct:   int(m.rate / max * 100),
 		}
 		if m.family == "claude" {
@@ -1008,7 +1015,7 @@ ul.caveats li{margin:6px 0}
 {{$fams := costFamilies .Plan.Sinks}}
 {{if $fams}}
 <h2>What these findings could cost in 30 days</h2>
-<p class="note">The findings above add up to about {{human (sumPerDay .Plan.Sinks)}} tokens a day at your usual pace. This prices 30 days of that at each model's list price for input. It assumes 90% is read from cache, which costs a tenth as much, so the blend is about a fifth of list price. All bars use one scale. This is an illustration, not a bill. Your real cache use will differ.</p>
+<p class="note">The findings above add up to about {{human (sumPerDay .Plan.Sinks)}} tokens a day at your usual pace. This prices 30 days of that for each model. It assumes 90% of the input is read from cache, at that model's own cache price, which is much cheaper than list price. All bars use one scale. This is an illustration, not a bill. Your real cache use will differ.</p>
 <div class="dcard chart">
   <input type="radio" name="costfam" id="fam-claude" checked>
   <input type="radio" name="costfam" id="fam-gpt56">

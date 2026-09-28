@@ -2,9 +2,30 @@ package store
 
 import "testing"
 
-func TestCachedRateAssumes90PercentCached(t *testing.T) {
-	if got := cachedRate(10.0); got < 1.899 || got > 1.901 {
-		t.Fatalf("cachedRate(10) = %v, want 1.90 (0.19x list)", got)
+func TestCostChartBlendsEachModelsCatalogCachePrice(t *testing.T) {
+	// Fable 5.1: $10 in, $0.25 cache read -> 0.1*10 + 0.9*0.25 = 1.225, not
+	// the 1.90 a flat tenth-of-list cache price gave.
+	if got := cachedRate(10, 0.25); got < 1.2249 || got > 1.2251 {
+		t.Fatalf("cachedRate(10, 0.25) = %v, want 1.225", got)
+	}
+	families := costFamilies([]Sink{{TokensPerDayRate: 1_000_000}})
+	rates := map[string]string{}
+	for _, f := range families {
+		for _, row := range f.Rows {
+			rates[row.Label] = row.Rate
+		}
+	}
+	for label, want := range map[string]string{
+		"Fable 5.1": "$1.23/MTok in", // 1.225
+		"Opus 5.5":  "$0.58/MTok in", // 0.4 + 0.9*0.20
+		"Sonnet 5":  "$0.38/MTok in", // 0.2 + 0.9*0.20
+	} {
+		if rates[label] != want {
+			t.Errorf("%s rate = %q, want %q (all rates: %v)", label, rates[label], want, rates)
+		}
+	}
+	if _, drawn := rates["Luna"]; drawn {
+		t.Error("gpt-6-luna has no catalog row; it must not be drawn at a guessed price")
 	}
 }
 
