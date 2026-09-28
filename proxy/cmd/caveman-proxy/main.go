@@ -64,7 +64,10 @@ func main() {
 	case "usage":
 		runUsage(logger, os.Args[2:])
 	case "learn":
-		runLearn(logger, os.Args[2:])
+		// learn prints its result document on stdout; a failure has to reach
+		// stderr, which is the only stream the CLI surfaces when the child exits
+		// non-zero.
+		runLearn(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: redact.SlogReplaceAttr})), os.Args[2:])
 	case "status":
 		// status prints one JSON document on stdout, which the CLI parses whole.
 		// Its diagnostics go to stderr so a config error cannot interleave a
@@ -728,7 +731,7 @@ func runLearn(logger *slog.Logger, args []string) {
 		if sinkID == "" {
 			fatalJSON(logger, fmt.Errorf("usage: caveman-proxy learn apply <sink_id> [--dry-run]"))
 		}
-		plan, err := spend.BuildLearnPlan(cwd, sources, since)
+		plan, err := spend.BuildLearnPlanFilteredWithRetro(cwd, sources, since, store.RetroOptions{}, repoFilter)
 		if err != nil {
 			fatalJSON(logger, err)
 		}
@@ -757,6 +760,12 @@ func runLearn(logger *slog.Logger, args []string) {
 			fatalJSON(logger, err)
 		}
 		printJSON(simulation)
+	case "experiment":
+		runLearnExperiment(logger, spend, cwd, sources, args)
+	case "export":
+		runLearnExport(logger, spend, home, cwd, sources, since, args)
+	case "reconcile":
+		runLearnReconcile(logger, spend, cwd, sources, since, args)
 	default:
 		fatalJSON(logger, fmt.Errorf("unknown learn subcommand: %s", sub))
 	}
@@ -769,6 +778,7 @@ var positionalValueFlags = map[string]bool{
 	"--plan": true, "--port": true, "--recent": true, "--repo": true,
 	"--retro-budget-ms": true, "--session": true, "--since": true,
 	"--sources": true, "--trial-id": true, "--write-report-token": true,
+	"--sink": true, "--usage-export": true,
 }
 
 func learnSinkPositionals(args []string) []string {

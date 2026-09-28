@@ -16719,6 +16719,38 @@ export function renderExperimentReport(raw: Record<string, any>): string {
   return `${out.join("\n")}\n`;
 }
 
+// renderExperiments prints start/arm/stop (one experiment) or list (many):
+// label, state, and the arm currently running.
+export function renderExperiments(raw: Record<string, any> | Record<string, any>[]): string {
+  const experiments = Array.isArray(raw) ? raw : [raw];
+  if (experiments.length === 0) return "no experiments yet — start one: caveman learn experiment start <label>\n";
+  return experiments.map((exp) => {
+    const arms = Array.isArray(exp.arms) ? (exp.arms as Record<string, any>[]) : [];
+    const open = arms.find((arm) => !arm.ended_at);
+    const state = exp.stopped_at ? "stopped" : open ? `arm ${String(open.arm)} since ${String(open.started_at)}` : "no open arm";
+    const sink = exp.sink_id ? dim(`  sink ${String(exp.sink_id)}${exp.fix_kind ? ` · ${String(exp.fix_kind)}` : ""}`) : "";
+    return `${bold(String(exp.label ?? ""))}  ${state}  ${arms.length} interval${arms.length === 1 ? "" : "s"}${sink}\n`;
+  }).join("");
+}
+
+// renderLearnDigest names the file to inspect; the digest itself is the file.
+export function renderLearnDigest(raw: Record<string, any>): string {
+  return `digest written: ${String(raw.path ?? "")}\n${dim(String(raw.summary ?? ""))}\ninspect it before sharing; --json prints it\n`;
+}
+
+// renderLearnReconcile prints measured vs billed per model. Coverage is a token
+// comparison, never a savings claim, so there is no money column.
+export function renderLearnReconcile(raw: Record<string, any>): string {
+  const rows = Array.isArray(raw.models) ? (raw.models as Record<string, any>[]) : [];
+  const out: string[] = [bold(`reconcile  ${Number(raw.coverage_pct ?? 0).toFixed(1)}% of billed tokens seen locally`)];
+  for (const row of rows) {
+    out.push(`  ${String(row.model ?? "")}  billed ${humanTokens(Number(row.billed_tokens ?? 0))}  measured ${humanTokens(Number(row.measured_tokens ?? 0))}  ${Number(row.coverage_pct ?? 0).toFixed(1)}%`);
+  }
+  out.push(`  unattributed ${humanTokens(Number(raw.unattributed_tokens ?? 0))} tokens`);
+  for (const caveat of (raw.caveats ?? []) as string[]) out.push(dim(`  · ${caveat}`));
+  return `${out.join("\n")}\n`;
+}
+
 function learnUsage(): void {
   console.log(`${invokedAs()} learn [--all|--plain|--json|--md] [--since 30d] [--sources claude,codex,gemini,opencode,aider]
   default       interactive setup score + grouped top moves
@@ -16855,20 +16887,18 @@ async function learn(rest: string[]) {
   const sub = rest[0];
   if (sub === "--help" || sub === "-h" || sub === "help") return learnUsage();
   if (sub === "implement") return learnImplement(rest.slice(1));
-  if (sub === "export" || sub === "reconcile") {
-    // Both are inspect-before-you-act surfaces, so they stay machine-readable:
-    // the digest is a file the user reads before deciding to share it, and a
-    // reconciliation is a table, not a headline.
-    process.stdout.write(formatLearnProxyJSON(proxyExecLearn(["learn", ...rest], false)));
-    return;
-  }
-  if (sub === "experiment") {
+  if (sub === "export" || sub === "reconcile" || sub === "experiment") {
     const rawText = proxyExecLearn(["learn", ...rest], false);
-    if (rest.includes("--json") || !["report"].includes(String(rest[1] ?? ""))) {
+    if (rest.includes("--json")) {
       process.stdout.write(formatLearnProxyJSON(rawText));
       return;
     }
-    process.stdout.write(renderExperimentReport(JSON.parse(rawText) as Record<string, any>));
+    const parsed = JSON.parse(rawText);
+    const render = sub === "export" ? renderLearnDigest
+      : sub === "reconcile" ? renderLearnReconcile
+      : rest[1] === "report" ? renderExperimentReport
+      : renderExperiments;
+    process.stdout.write(render(parsed));
     return;
   }
   if (sub === "savings") {
