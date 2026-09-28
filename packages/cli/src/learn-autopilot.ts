@@ -350,7 +350,8 @@ export function claimLearnNudge(source: string | undefined, token: string): stri
     const held = readJson<Nudge>(paths.inflight);
     if (held) {
       const age = Date.now() - Date.parse(held.claimed_at ?? "");
-      if (Number.isFinite(age) && age < NUDGE_RESHOW_MS) return undefined;
+      // age < 0 = clock went backwards; treat as expired rather than block.
+      if (Number.isFinite(age) && age >= 0 && age < NUDGE_RESHOW_MS) return undefined;
       if (!held.reshown) {
         renameSync(paths.inflight, claimed); // one concurrent re-claimer wins
         nudge = { ...held, reshown: true };
