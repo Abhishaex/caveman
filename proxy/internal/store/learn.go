@@ -501,11 +501,38 @@ func configSinksWithBehavior(cfg configScan, beh behaviorScan, turnsPerDay float
 		})
 	}
 	sinks = append(sinks, claudeMDSink(cfg.ClaudeMDUser, "user", turnsPerDay)...)
-	sinks = append(sinks, claudeMDSink(cfg.ClaudeMDProject, "project", turnsPerDay)...)
+	projectRate, projectBasis := projectTurnsPerDay(cfg.ClaudeMDProject, beh, turnsPerDay)
+	project := claudeMDSink(cfg.ClaudeMDProject, "project", projectRate)
+	for i := range project {
+		project[i].Evidence["turns_per_day_basis"] = projectBasis
+	}
+	sinks = append(sinks, project...)
 	if cfg.CodexAgents != nil {
 		sinks = append(sinks, claudeMDSink(cfg.CodexAgents, "codex", turnsPerDay)...)
 	}
 	return sinks
+}
+
+// projectTurnsPerDay is the turn rate that actually loads a project CLAUDE.md:
+// Claude sessions whose cwd is the file's directory or below it. Multiplying by
+// every scanned session's turns charged this repo's file for all other repos'
+// traffic. Without per-session repo metrics it falls back to the all-session
+// rate and says so.
+func projectTurnsPerDay(snap *ConfigSnapshot, beh behaviorScan, turnsPerDay float64) (float64, string) {
+	if snap == nil || beh.Turns == 0 || len(beh.SessionMetrics) == 0 {
+		return turnsPerDay, "all_scanned_sessions"
+	}
+	dir := filepath.Dir(snap.Path)
+	turns := 0
+	for _, m := range beh.SessionMetrics {
+		if m.Source != "claude" {
+			continue
+		}
+		if rel, err := filepath.Rel(dir, m.Repo); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			turns += m.Turns
+		}
+	}
+	return turnsPerDay * float64(turns) / float64(beh.Turns), "claude_sessions_under_project"
 }
 
 func claudeMDSink(snap *ConfigSnapshot, scope string, turnsPerDay float64) []Sink {

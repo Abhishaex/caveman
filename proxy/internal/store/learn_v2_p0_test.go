@@ -405,3 +405,38 @@ func TestInferredWindowOnCatalogModelIsNotAFallback(t *testing.T) {
 		t.Fatalf("catalog session past its 200k window = %+v", beh)
 	}
 }
+
+func TestProjectClaudeMDRateCountsOnlyThatProjectsClaudeSessions(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "proj")
+	cfg := configScan{ClaudeMDProject: &ConfigSnapshot{Path: filepath.Join(project, "CLAUDE.md"), Lines: 400, Tokens: 3000}}
+	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{
+		{Repo: project, Source: "claude", Turns: 10},
+		{Repo: filepath.Join(project, "sub"), Source: "claude", Turns: 5},
+		{Repo: project, Source: "codex", Turns: 20},                // Codex reads AGENTS.md, not CLAUDE.md
+		{Repo: project + "-worktree", Source: "claude", Turns: 30}, // sibling dir, own CLAUDE.md
+		{Repo: filepath.Join(root, "other"), Source: "claude", Turns: 35},
+	}}
+	projectSink := func(beh behaviorScan) Sink {
+		for _, sink := range configSinksWithBehavior(cfg, beh, 50) {
+			if sink.SinkID == "claude_md_weight:project" {
+				return sink
+			}
+		}
+		t.Fatal("missing claude_md_weight:project")
+		return Sink{}
+	}
+	// 15 of 100 turns at 50 turns/day -> 7.5 turns/day x 3000 tokens.
+	sink := projectSink(beh)
+	if sink.TokensPerDayRate != 22500 || sink.Evidence["turns_per_day_basis"] != "claude_sessions_under_project" {
+		t.Fatalf("rate = %d basis %v, want 22500 claude_sessions_under_project", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"])
+	}
+	beh.SessionMetrics = beh.SessionMetrics[3:]
+	if sink := projectSink(beh); sink.TokensPerDayRate != 0 {
+		t.Fatalf("project with no sessions of its own charged %d tokens/day", sink.TokensPerDayRate)
+	}
+	beh.SessionMetrics = nil
+	if sink := projectSink(beh); sink.TokensPerDayRate != 150000 || sink.Evidence["turns_per_day_basis"] != "all_scanned_sessions" {
+		t.Fatalf("fallback rate = %d basis %v", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"])
+	}
+}
