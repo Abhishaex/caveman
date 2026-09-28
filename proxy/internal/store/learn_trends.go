@@ -605,7 +605,11 @@ func trendCards(t *LearnTrends) []trendCard {
 		switch {
 		case m.Unit == "pct" && m.Current != nil && m.Prior != nil:
 			// Share metrics move in percentage points; a percent of a percent overstates.
-			c.Delta = strings.TrimSuffix(fmt.Sprintf("%+.1f", *m.Current-*m.Prior), ".0") + " points"
+			diff, unit := *m.Current-*m.Prior, " points"
+			if math.Abs(diff) == 1 {
+				unit = " point"
+			}
+			c.Delta = strings.TrimSuffix(fmt.Sprintf("%+.1f", diff), ".0") + unit
 		case m.DeltaPct != nil:
 			c.Delta = fmt.Sprintf("%+.0f%%", *m.DeltaPct)
 		}

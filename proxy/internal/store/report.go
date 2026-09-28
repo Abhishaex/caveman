@@ -298,7 +298,8 @@ func fmtUSD(usd float64) string {
 	if usd > 0 && usd < 0.01 {
 		return "<$0.01"
 	}
-	return fmt.Sprintf("$%.2f", usd)
+	cents := int64(usd*100 + 0.5)
+	return fmt.Sprintf("$%s.%02d", commaInt(cents/100), cents%100)
 }
 
 func fmtRate(rate float64) string {
@@ -555,8 +556,10 @@ func basisPlain(basis string) string {
 		return "counted by your model provider"
 	case "bytes4_estimate", "estimated_local":
 		return "estimated from text size"
-	case "o200k", "observed_local":
+	case "o200k":
 		return "counted by Caveman"
+	case "observed_local":
+		return "measured on this computer"
 	case "inferred", "verified":
 		return "estimate"
 	}
@@ -961,7 +964,7 @@ ul.caveats li{margin:6px 0}
 
 {{with memoryHealth .Plan.Sinks}}
 <h2>Memory and instruction files</h2>
-<p class="note">Read-only checks of the memory and instruction files your agents load. {{if eq (len .) 1}}This finding is listed here.{{else}}All {{len .}} of these findings are listed here.{{end}} Most have no token cost, so they rank low in the list above.</p>
+<p class="note">Read-only checks of the memory and instruction files your agents load. {{if eq (len .) 1}}This finding is listed here.{{else}}These {{len .}} findings are all listed here.{{end}} Most have no token cost, so they rank low in the list above.</p>
 <div class="props">
 {{range .}}<div class="prop"><span class="k">{{memoryKind .SinkID}}</span><span>{{.Title}}{{if .Suggestion}}<br><span class="kv">{{.Suggestion}}</span>{{end}}{{with index .Evidence "path"}}<br><span class="mono">{{.}}</span>{{end}}</span><span class="v">{{if .TokensPerTurn}}{{comma .TokensPerTurn}} / message{{end}}</span></div>
 {{end}}</div>
@@ -973,9 +976,9 @@ ul.caveats li{margin:6px 0}
 <div class="dcard">
   <div class="kicker">Session health · not a cost</div>
   <div class="dstats">
-    <div class="dstat"><span class="dn">{{.Over30Pct}}</span><span class="dk"><span class="dot" style="background:#e0b357"></span>sessions past 30% full</span></div>
-    <div class="dstat"><span class="dn">{{.Over50Pct}}</span><span class="dk"><span class="dot" style="background:#e0837c"></span>sessions past 50% full</span></div>
-    <div class="dstat"><span class="dn">{{.Sessions}}</span><span class="dk"><span class="dot" style="background:#cfcdc7"></span>sessions measured</span></div>
+    <div class="dstat"><span class="dn">{{comma .Over30Pct}}</span><span class="dk"><span class="dot" style="background:#e0b357"></span>sessions past 30% full</span></div>
+    <div class="dstat"><span class="dn">{{comma .Over50Pct}}</span><span class="dk"><span class="dot" style="background:#e0837c"></span>sessions past 50% full</span></div>
+    <div class="dstat"><span class="dn">{{comma .Sessions}}</span><span class="dk"><span class="dot" style="background:#cfcdc7"></span>sessions measured</span></div>
   </div>
   <div class="hist">
     {{range depthBars .}}
