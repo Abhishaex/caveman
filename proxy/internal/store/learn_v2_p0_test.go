@@ -410,7 +410,7 @@ func TestInferredWindowOnCatalogModelIsNotAFallback(t *testing.T) {
 func TestProjectClaudeMDRateCountsOnlyThatProjectsClaudeSessions(t *testing.T) {
 	root := t.TempDir()
 	project := filepath.Join(root, "proj")
-	cfg := configScan{ClaudeMDProject: &ConfigSnapshot{Path: filepath.Join(project, "CLAUDE.md"), Lines: 400, Tokens: 3000}}
+	cfg := configScan{ClaudeMDProject: &ConfigSnapshot{Scope: "project", Kind: "claude_md", Path: filepath.Join(project, "CLAUDE.md"), Lines: 400, Tokens: 3000}}
 	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{
 		{Repo: project, Source: "claude", Turns: 10},
 		{Repo: filepath.Join(project, "sub"), Source: "claude", Turns: 5},
@@ -452,5 +452,57 @@ func TestClaudeProviderModelSplitsOnlyKnownVendorPrefixes(t *testing.T) {
 		if p, m := claudeProviderModel(in); p != want[0] || m != want[1] {
 			t.Errorf("claudeProviderModel(%q) = %s/%s, want %s/%s", in, p, m, want[0], want[1])
 		}
+	}
+}
+
+func TestUserClaudeMDAndCodexAgentsRatesCountOnlyTheirOwnSource(t *testing.T) {
+	cfg := configScan{
+		ClaudeMDUser: &ConfigSnapshot{Scope: "user", Kind: "claude_md", Path: "/home/u/.claude/CLAUDE.md", Lines: 400, Tokens: 3000},
+		CodexAgents:  &ConfigSnapshot{Scope: "user", Kind: "agents_md", Path: "/home/u/.codex/AGENTS.md", Lines: 400, Tokens: 3000},
+	}
+	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{
+		{Repo: "/a", Source: "claude", Turns: 60},
+		{Repo: "/b", Source: "codex", Turns: 40},
+	}}
+	want := map[string][2]any{
+		"claude_md_weight:user":  {int64(90000), "claude_sessions"}, // 60/100 x 50/day x 3000
+		"claude_md_weight:codex": {int64(60000), "codex_sessions"},
+	}
+	for _, sink := range configSinksWithBehavior(cfg, beh, 50) {
+		w, ok := want[sink.SinkID]
+		if !ok {
+			continue
+		}
+		delete(want, sink.SinkID)
+		if sink.TokensPerDayRate != w[0] || sink.Evidence["turns_per_day_basis"] != w[1] {
+			t.Errorf("%s = %d basis %v, want %v %v", sink.SinkID, sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"], w[0], w[1])
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing sinks: %v", want)
+	}
+}
+
+func TestConfigGrowthChargesEachFileAtItsOwnSessionsRate(t *testing.T) {
+	project := filepath.Join(t.TempDir(), "proj")
+	rows := []configTrendRow{
+		{Scope: "project", Kind: "claude_md", Path: filepath.Join(project, "CLAUDE.md"), FirstTokens: 1000, LastTokens: 2000, Observations: 2},
+		{Scope: "user", Kind: "agents_md", Path: "/home/u/.codex/AGENTS.md", FirstTokens: 1000, LastTokens: 1500, Observations: 2},
+	}
+	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{
+		{Repo: project, Source: "claude", Turns: 10},
+		{Repo: "/elsewhere", Source: "claude", Turns: 50},
+		{Repo: "/elsewhere", Source: "codex", Turns: 40},
+	}}
+	sinks := configTrendSink(rows, beh, 50, nil)
+	if len(sinks) != 1 {
+		t.Fatalf("sinks = %+v", sinks)
+	}
+	// project: 1000 x (10/100 x 50) = 5000; codex: 500 x (40/100 x 50) = 10000.
+	if got := sinks[0].TokensPerDayRate; got != 15000 {
+		t.Fatalf("config_growth rate = %d, want 15000 (all-session rate would be 75000)", got)
+	}
+	if sinks[0].Evidence["turns_per_day_basis"] != "per_file" {
+		t.Fatalf("basis = %v", sinks[0].Evidence["turns_per_day_basis"])
 	}
 }

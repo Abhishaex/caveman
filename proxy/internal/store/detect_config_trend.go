@@ -104,7 +104,7 @@ func (s *Store) configTrendEndpoints(row configTrendRow) (first, last int, err e
 // configTrendSink names what grew. Paths ARE included here, unlike in the
 // digest: this sink is for the user's own eyes and a growth finding without the
 // filename is unactionable.
-func configTrendSink(rows []configTrendRow, turnsPerDay float64, spend *LearnSpend) []Sink {
+func configTrendSink(rows []configTrendRow, beh behaviorScan, turnsPerDay float64, spend *LearnSpend) []Sink {
 	var grown []configTrendRow
 	for _, row := range rows {
 		if row.FirstTokens <= 0 || row.growth() < configTrendMinGrowthTokens || row.growthPct() < configTrendMinGrowthPct {
@@ -125,19 +125,32 @@ func configTrendSink(rows []configTrendRow, turnsPerDay float64, spend *LearnSpe
 		grown = grown[:configTrendMaxFiles]
 	}
 	totalGrowth := 0
+	var perDay int64
+	bases := map[string]bool{}
 	files := make([]map[string]any, 0, len(grown))
 	for _, row := range grown {
 		totalGrowth += row.growth()
+		// Each file is charged at the turn rate of the sessions that load it,
+		// matching its own weight finding.
+		fileTurns, basis := configTurnsPerDay(row.Scope, row.Kind, row.Path, beh, turnsPerDay)
+		perDay += rate(row.growth(), fileTurns)
+		bases[basis] = true
 		files = append(files, map[string]any{
 			"scope": row.Scope, "path": row.Path, "kind": row.Kind,
 			"tokens_before": row.FirstTokens, "tokens_after": row.LastTokens,
 			"growth_tokens": row.growth(), "growth_pct": roundPct(row.growthPct()),
 			"first_seen": row.FirstSeen, "last_seen": row.LastSeen,
+			"turns_per_day_basis": basis,
 		})
+	}
+	basis := "per_file"
+	if len(bases) == 1 {
+		basis = files[0]["turns_per_day_basis"].(string)
 	}
 	evidence := map[string]any{
 		"files":               files,
 		"growth_tokens_total": totalGrowth,
+		"turns_per_day_basis": basis,
 		"comparison":          "against this machine's own recorded config history, not a general guideline",
 		"note":                "growth only; the current size of each file is reported by its own weight finding",
 	}
@@ -147,7 +160,7 @@ func configTrendSink(rows []configTrendRow, turnsPerDay float64, spend *LearnSpe
 			humanTokens(int64(totalGrowth)), plural(len(grown), "file")),
 		Class: classBehavioral, Basis: observedLocal, Framing: framingForward,
 		TokensPerTurn:    int64(totalGrowth),
-		TokensPerDayRate: rate(totalGrowth, turnsPerDay),
+		TokensPerDayRate: perDay,
 		Evidence:         evidence,
 		Suggestion:       "Every token added here is sent again with every message of every session, so growth adds up fast. Check whether the new parts still earn their place.",
 	}

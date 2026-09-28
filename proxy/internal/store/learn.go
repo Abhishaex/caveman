@@ -265,7 +265,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	if trendRows, trendErr := s.configTrendRows(since); trendErr != nil {
 		logStoreWarning(s.logger, "config trend read failed", trendErr)
 	} else {
-		plan.Sinks = append(plan.Sinks, configTrendSink(trendRows, turnsPerDay, plan.Spend)...)
+		plan.Sinks = append(plan.Sinks, configTrendSink(trendRows, beh, turnsPerDay, plan.Spend)...)
 	}
 	plan.sessionOutcomes = beh.SessionOutcomes
 	if plan.Spend != nil {
@@ -500,39 +500,62 @@ func configSinksWithBehavior(cfg configScan, beh behaviorScan, turnsPerDay float
 			Evidence:         evidence,
 		})
 	}
-	sinks = append(sinks, claudeMDSink(cfg.ClaudeMDUser, "user", turnsPerDay)...)
-	projectRate, projectBasis := projectTurnsPerDay(cfg.ClaudeMDProject, beh, turnsPerDay)
-	project := claudeMDSink(cfg.ClaudeMDProject, "project", projectRate)
-	for i := range project {
-		project[i].Evidence["turns_per_day_basis"] = projectBasis
-	}
-	sinks = append(sinks, project...)
-	if cfg.CodexAgents != nil {
-		sinks = append(sinks, claudeMDSink(cfg.CodexAgents, "codex", turnsPerDay)...)
-	}
+	sinks = append(sinks, scopedClaudeMDSink(cfg.ClaudeMDUser, "user", beh, turnsPerDay)...)
+	sinks = append(sinks, scopedClaudeMDSink(cfg.ClaudeMDProject, "project", beh, turnsPerDay)...)
+	sinks = append(sinks, scopedClaudeMDSink(cfg.CodexAgents, "codex", beh, turnsPerDay)...)
 	return sinks
 }
 
-// projectTurnsPerDay is the turn rate that actually loads a project CLAUDE.md:
-// Claude sessions whose cwd is the file's directory or below it. Multiplying by
-// every scanned session's turns charged this repo's file for all other repos'
-// traffic. Without per-session repo metrics it falls back to the all-session
-// rate and says so.
-func projectTurnsPerDay(snap *ConfigSnapshot, beh behaviorScan, turnsPerDay float64) (float64, string) {
-	if snap == nil || beh.Turns == 0 || len(beh.SessionMetrics) == 0 {
+// configTurnsPerDay is the turn rate of the sessions that actually load one
+// config file: Claude Code reads CLAUDE.md and the Claude root's skills, Codex
+// reads AGENTS.md, and a project-scoped file loads only in sessions whose cwd is
+// at or under its directory. Multiplying by every scanned session's turns
+// charged a file for traffic that never loaded it. Without per-session metrics
+// it falls back to the all-session rate and says so.
+func configTurnsPerDay(scope, kind, path string, beh behaviorScan, turnsPerDay float64) (float64, string) {
+	var source string
+	switch kind {
+	case "claude_md", "skill_desc", "hooks", "plugins":
+		source = "claude"
+	case "agents_md":
+		source = "codex"
+	}
+	if source == "" || beh.Turns == 0 || len(beh.SessionMetrics) == 0 {
 		return turnsPerDay, "all_scanned_sessions"
 	}
-	dir := filepath.Dir(snap.Path)
+	dir := filepath.Dir(path)
 	turns := 0
 	for _, m := range beh.SessionMetrics {
-		if m.Source != "claude" {
+		if m.Source != source {
 			continue
 		}
-		if rel, err := filepath.Rel(dir, m.Repo); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			turns += m.Turns
+		if scope == "project" {
+			rel, err := filepath.Rel(dir, m.Repo)
+			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
 		}
+		turns += m.Turns
 	}
-	return turnsPerDay * float64(turns) / float64(beh.Turns), "claude_sessions_under_project"
+	basis := source + "_sessions"
+	if scope == "project" {
+		basis += "_under_project"
+	}
+	return turnsPerDay * float64(turns) / float64(beh.Turns), basis
+}
+
+// scopedClaudeMDSink is claudeMDSink at the turn rate of the sessions that load
+// the file, with that basis recorded in evidence.
+func scopedClaudeMDSink(snap *ConfigSnapshot, scope string, beh behaviorScan, turnsPerDay float64) []Sink {
+	if snap == nil {
+		return nil
+	}
+	rate, basis := configTurnsPerDay(snap.Scope, snap.Kind, snap.Path, beh, turnsPerDay)
+	sinks := claudeMDSink(snap, scope, rate)
+	for i := range sinks {
+		sinks[i].Evidence["turns_per_day_basis"] = basis
+	}
+	return sinks
 }
 
 func claudeMDSink(snap *ConfigSnapshot, scope string, turnsPerDay float64) []Sink {
