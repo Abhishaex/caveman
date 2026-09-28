@@ -444,7 +444,7 @@ last 6 weeks  tokens per session   ▄▂▃▁█┊▄  +185% · worse
               a trend is not a saving, and it does not show the cause
 ```
 
-"Overloaded" means the conversation filled more than half of what the model can hold at once. Past that, answers get worse. Each week counts its middle session, not the average, so one giant session can't skew it. Weeks under 5 sessions say "not enough data" instead of guessing. The `┊` marks the week still running: shown, never compared.
+"Overloaded" means the conversation filled more than half of what the model can hold at once. Past that, answers tend to get worse (a common rule of thumb). Each week counts its middle session, not the average, so one giant session can't skew it. Weeks under 5 sessions say "not enough data" instead of guessing. The `┊` marks the week still running: shown, never compared.
 
 **It prove the fix, or undo it.** `implement` re-measures after every change and undoes anything that didn't make each message smaller. Some fixes can't be re-counted, like a new skill that only pays off when it gets used. For those, `caveman learn experiment` runs it on for a stretch and off for a stretch over your own sessions, and gives no verdict before 5 sessions each way. Caveman never makes your agent dumber to make it cheaper.
 

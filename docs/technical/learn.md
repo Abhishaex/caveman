@@ -39,7 +39,7 @@ right-hand column; the tables further down use them too.
 | always-loaded setup, instructions | `CLAUDE.md`, `AGENTS.md`, skill descriptions, hooks: loaded into every message. | `config_tax` |
 | unused skills | Skills whose descriptions load with every message but were never used in the sessions scanned. | `dead_load` |
 | context window | How much the model can hold at once. | window |
-| overloaded messages | Messages where the conversation filled more than half the context window. Answers get worse past that point. | `dumbzone`, `context_dumbzone` |
+| overloaded messages | Messages where the conversation filled more than half the context window. A common rule of thumb: answers tend to get worse past that point. | `dumbzone`, `context_dumbzone` |
 | how full sessions get | Each session's peak share of the context window. | `context_depth`, `peak_context_pct` |
 | first-message size | What a session sends with its first message: your setup plus your first prompt. | `first_turn_tokens`, `measured_prefix_tokens` |
 | Caveman memory (cavemem) | Caveman's local memory store. The agent recalls a short version of the text when it needs it, instead of pasting it again. | `cavemem_offload` |

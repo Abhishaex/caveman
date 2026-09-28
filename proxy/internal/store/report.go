@@ -654,7 +654,7 @@ func learnTLDR(plan LearnPlan) string {
 		fmt.Fprintf(&b, " %s of repeated text could live in Caveman memory instead.", plural(rec, "piece"))
 	}
 	if d := plan.ContextDepth; d != nil && d.Over50Pct > 0 {
-		fmt.Fprintf(&b, " Habit to watch: %s of %s went past half the context window, where answers get worse.", commaInt(int64(d.Over50Pct)), plural(d.Sessions, "session"))
+		fmt.Fprintf(&b, " Habit to watch: %s of %s went past half the context window, where answers tend to get worse.", commaInt(int64(d.Over50Pct)), plural(d.Sessions, "session"))
 	}
 	savingsTLDR(&b, plan)
 	b.WriteString(" Next: run caveman learn implement and approve each fix, one by one. Fewer tokens. Brain still big.")
@@ -983,7 +983,7 @@ ul.caveats li{margin:6px 0}
 
 {{with .Plan.ContextDepth}}
 <h2>How full your sessions get</h2>
-<p class="note">For each session, how much of the model's context window (what it can hold at once) the conversation filled at its peak, as counted by your model provider in {{plural .Sessions "session"}}. Long sessions re-send the whole conversation with every message, and answers get worse well before the window is full. Start a fresh session, or compact, before you pass half. Moving repeated text to Caveman memory helps too. This is a quality signal, not a cost.</p>
+<p class="note">For each session, how much of the model's context window (what it can hold at once) the conversation filled at its peak, as counted by your model provider in {{plural .Sessions "session"}}. Long sessions re-send the whole conversation with every message, and answers tend to get worse well before the window is full. Start a fresh session, or compact, before you pass half. Moving repeated text to Caveman memory helps too. This is a quality signal, not a cost.</p>
 <div class="dcard">
   <div class="kicker">Session health · not a cost</div>
   <div class="dstats">

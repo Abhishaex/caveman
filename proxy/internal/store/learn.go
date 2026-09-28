@@ -613,7 +613,7 @@ func dumbzoneSink(beh behaviorScan) []Sink {
 		TokensPerTurn: 0, TokensPerDayRate: 0,
 		TokensObserved: beh.DumbzoneExcessTokens,
 		Framing:        framingHistorical,
-		Suggestion:     "Start a fresh session, or compact, before you pass half the window. Answers get worse well before the window is full.",
+		Suggestion:     "Start a fresh session, or compact, before you pass half the window. Answers tend to get worse well before the window is full.",
 		Evidence:       evidence,
 	}}
 }

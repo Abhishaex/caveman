@@ -420,7 +420,7 @@ func memoryOrphansSink(f *instructionFile, memDir string, turnsPerDay float64) [
 			"dangling_links": capStrings(dangling), "dangling_count": len(dangling),
 			"dangling_tokens_per_turn": danglingTokens, "token_basis": basis, "fix_kind": "memory_index_repair",
 		},
-		"The agent only finds memory files through links in MEMORY.md, so unlinked files are never used. Broken links load in every session and lead nowhere. Consider linking or deleting the unlinked files and fixing or removing the broken links, with the user's yes for each.")}
+		"Unlinked files are never listed in the MEMORY.md index, so the agent isn't pointed at them. Broken links load in every session and lead nowhere. Consider linking or deleting the unlinked files and fixing or removing the broken links, with the user's yes for each.")}
 }
 
 func brokenImportsSink(f *instructionFile) []Sink {
