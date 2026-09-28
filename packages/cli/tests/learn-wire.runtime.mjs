@@ -32,8 +32,8 @@ test("learn experiment/export/reconcile forward flags verbatim and render by def
 
     let result = await runCli(["learn", "experiment", "start", "distill", "--sink", "procedure_repeat:abc", "--fix-kind", "skill_distillation"], { env });
     assert.equal(result.code, 0, result.stderr);
-    assert.match(result.stdout, /distill\s+arm on since 2026-09-01T00:00:00Z/);
-    assert.match(result.stdout, /sink procedure_repeat:abc · skill_distillation/);
+    assert.match(result.stdout, /distill\s+on since 2026-09-01T00:00:00Z/);
+    assert.match(result.stdout, /id procedure_repeat:abc · skill_distillation/);
 
     result = await runCli(["learn", "experiment", "list"], { env });
     assert.match(result.stdout, /no experiments yet/);

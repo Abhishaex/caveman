@@ -160,7 +160,7 @@ test("learn autopilot on/off persists in config and status reports it", async ()
     assert.equal(on.code, 0, on.stderr);
     assert.match(on.stdout, /learn autopilot: on \(config\)/);
     assert.match(on.stdout, /last scan:\s+never/);
-    assert.match(on.stdout, /next eligible:\s+next session end/);
+    assert.match(on.stdout, /next scan:\s+next session end/);
     const cfg = JSON.parse(readFileSync(join(box.home, ".caveman-cloud", "config.json"), "utf8"));
     assert.equal(cfg.learnAutopilot, true);
     assert.deepEqual(cfg.wrap, { proxy: false }, "other config keys preserved");
@@ -227,7 +227,7 @@ test("new big sink is announced once, user-visible, only on startup/clear", { sk
     box.seed({ seen: [] });
     const scan = await run([cli, "learn", "autopilot", "run"], box.env);
     assert.equal(scan.code, 0, scan.stderr);
-    const expected = "caveman learn: new token sink — Project CLAUDE.md loads every turn (~9.8k tokens/turn, inferred). Run `caveman learn` to review.";
+    const expected = "caveman learn: new finding — Project CLAUDE.md loads every turn (~9.8k tokens in every message, estimate). Run `caveman learn` to review.";
 
     for (const source of ["compact", "resume", "fork", undefined]) {
       const out = await hook(cli, "claude", sessionStart(source), box.env);
@@ -266,18 +266,18 @@ test("several new sinks collapse into one line; unclaimed nudge is not overwritt
     await run([cli, "learn", "autopilot", "run"], box.env);
     assert.ok(!box.state().seen.includes("recurring_context:x"), "sink behind an unclaimed nudge stays unseen");
     const first = await hook(cli, "gemini", sessionStart("startup"), box.env);
-    assert.match(JSON.parse(first.stdout).systemMessage, /new token sink — Project CLAUDE\.md/);
+    assert.match(JSON.parse(first.stdout).systemMessage, /new finding — Project CLAUDE\.md/);
     await new Promise((r) => setTimeout(r, 20));
     await run([cli, "learn", "autopilot", "run"], box.env);
     const next = await hook(cli, "codex", sessionStart("startup"), box.env);
-    assert.match(JSON.parse(next.stdout).systemMessage, /new token sink — Deploy notes pasted each session \(~2\.4k tokens\/turn, inferred\)/);
+    assert.match(JSON.parse(next.stdout).systemMessage, /new finding — Deploy notes pasted each session \(~2\.4k tokens in every message, estimate\)/);
 
     // Multi-sink single line.
     box.seed({ seen: [] });
     await run([cli, "learn", "autopilot", "run"], box.env);
     const multi = await hook(cli, "claude", sessionStart("startup"), box.env);
     assert.equal(JSON.parse(multi.stdout).systemMessage,
-      "caveman learn: 2 new token sinks, biggest — Project CLAUDE.md loads every turn (~9.8k tokens/turn, inferred). Run `caveman learn` to review.");
+      "caveman learn: 2 new findings, biggest — Project CLAUDE.md loads every turn (~9.8k tokens in every message, estimate). Run `caveman learn` to review.");
   } finally { box.cleanup(); }
 });
 
@@ -320,7 +320,7 @@ test("new broken-import and memory-truncation findings qualify for the nudge, on
     await run([cli, "learn", "autopilot", "run"], box.env);
     const out = await hook(cli, "claude", sessionStart("startup"), box.env);
     assert.equal(JSON.parse(out.stdout).systemMessage,
-      "caveman learn: memory & rules (webapp) — CLAUDE.md (project) has 2 @imports that resolve to missing files (+1 more). Run `caveman learn --all` to review.");
+      "caveman learn: memory files (webapp) — CLAUDE.md (project) has 2 @imports that resolve to missing files (+1 more). Run `caveman learn --all` to review.");
     assert.ok(!box.state().seen.includes("memory_health:stale_references:ffff0000"), "only broken imports and truncation qualify");
     await new Promise((r) => setTimeout(r, 20));
     await run([cli, "learn", "autopilot", "run"], box.env);
@@ -329,12 +329,12 @@ test("new broken-import and memory-truncation findings qualify for the nudge, on
   } finally { box.cleanup(); }
 });
 
-test("nudge line counts doctor findings behind the biggest token sink", async () => {
+test("nudge line counts doctor findings behind the biggest finding", async () => {
   const { nudgeLine } = await import(join(dist, "learn-autopilot.js"));
   assert.equal(nudgeLine([
     { title: "Big sink", tokens_per_turn: 5000 },
     { title: "Broken import", tokens_per_turn: 0, doctor: true },
-  ]), "caveman learn: new token sink — Big sink (~5.0k tokens/turn, inferred), plus 1 memory & rules finding. Run `caveman learn` to review.");
+  ]), "caveman learn: new finding — Big sink (~5.0k tokens in every message, estimate), plus 1 memory-file finding. Run `caveman learn` to review.");
 });
 
 test("an unconfirmed in-flight nudge re-shows once after 10 minutes, never twice", { skip: !posix }, async () => {

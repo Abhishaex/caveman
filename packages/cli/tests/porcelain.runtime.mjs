@@ -119,8 +119,8 @@ test("help learn explains summary, detail, and agent implementation paths", asyn
   try {
     const out = await runCli(["help", "learn"], { env: isolated.env });
     assert.equal(out.code, 0, out.stderr);
-    assert.match(out.stdout, /default\s+interactive setup score \+ grouped top moves/);
-    assert.match(out.stdout, /--plain\s+compact text; no animation or keyboard menu/);
+    assert.match(out.stdout, /default\s+interactive Setup Score \+ top findings/);
+    assert.match(out.stdout, /--plain\s+short text; no animation or keyboard menu/);
     assert.match(out.stdout, /--all\s+every finding/);
     assert.match(out.stdout, /implement\s+open Claude Code or Codex/);
   } finally {

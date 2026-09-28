@@ -49,7 +49,7 @@ export function learnMoveBody(move: LearnTuiMove): string {
 
 export function learnScoreBody(model: LearnTuiModel): string {
   const confirmed = model.confirmed && model.confirmed > 0
-    ? dim(`${model.confirmed} fixes measured since you applied them — run caveman learn --all`)
+    ? dim(`${model.confirmed} fix${model.confirmed === 1 ? "" : "es"} measured since you applied them — run caveman learn --all`)
     : undefined;
   if (model.score === null) {
     return [model.sessions, ...(model.status ? [model.status] : []), ...(model.trend ?? []).map(dim), ...(confirmed ? [confirmed] : [])].join("\n");
@@ -116,11 +116,11 @@ export async function renderLearnTui(model: LearnTuiModel): Promise<LearnTuiResu
       const number = dim(String(index + 1).padStart(2, "0"));
       return `${number}  ${learnMoveBody(move)}`;
     });
-    p.note(moves.join("\n\n"), "TOP MOVES");
+    p.note(moves.join("\n\n"), "TOP FINDINGS");
   }
 
   if (model.protected) {
-    p.log.warn(`${bold("Protected")}  ${model.protected}`);
+    p.log.warn(`${bold("Needed")}  ${model.protected}`);
   }
   if (model.memory) p.log.info(model.memory);
 
@@ -129,14 +129,14 @@ export async function renderLearnTui(model: LearnTuiModel): Promise<LearnTuiResu
     options.push({
       value: "implement",
       label: "Implement with agent",
-      hint: "Claude Code or Codex · approval before edits",
+      hint: "Claude Code or Codex · asks before every edit",
     });
   }
   if (model.findings > 0) {
     options.push({
       value: "details",
       label: `Show all ${model.findings} findings`,
-      hint: "full ids, evidence, and suggestions",
+      hint: "ids, evidence, and suggested fixes",
     });
   }
   options.push(
@@ -164,8 +164,8 @@ export async function renderLearnTui(model: LearnTuiModel): Promise<LearnTuiResu
 
   if (selected === "implement") {
     const focus = await p.text({
-      message: "Anything agent should focus on?",
-      placeholder: "Press Enter to work through all top moves",
+      message: "Anything the agent should focus on?",
+      placeholder: "Press Enter to work through all top findings",
       defaultValue: "",
     });
     if (p.isCancel(focus)) {

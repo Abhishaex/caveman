@@ -41,13 +41,13 @@ test("window cost renders provider-counted spend and the effective input rate", 
       effective_input_multiplier: 0.19,
     },
   });
-  assert.match(out, /window cost/);
+  assert.match(out, /^cost {2}/m);
   assert.match(out, /\$34\.10/);
-  assert.match(out, /effective input/);
-  assert.match(out, /0\.19x list after cache reuse/);
+  assert.match(out, /input really costs/);
+  assert.match(out, /19% of list price, thanks to caching/);
   // The subscription disclaimer is not optional: a Max user's marginal cost is
   // zero and the figure must never read as money they spent.
-  assert.match(out, /subscription plans have no marginal cost/);
+  assert.match(out, /on a subscription plan you pay nothing extra per token/);
 });
 
 test("an unpriced model is disclosed so the total reads as a floor", () => {
@@ -60,9 +60,9 @@ test("an unpriced model is disclosed so the total reads as a floor", () => {
       unpriced: [{ provider: "anthropic", model: "claude-imaginary-9", tokens: 6_000_000, reason: "no catalog row" }],
     },
   });
-  assert.match(out, /unpriced/);
+  assert.match(out, /no price/);
   assert.match(out, /claude-imaginary-9/);
-  assert.match(out, /total is a floor/);
+  assert.match(out, /real total is higher/);
 });
 
 test("several unpriced models collapse to one compact line; --all lists each", () => {
@@ -78,9 +78,9 @@ test("several unpriced models collapse to one compact line; --all lists each", (
       ],
     },
   };
-  const compact = renderLearnPlan(plan).split("\n").filter((line) => line.startsWith("unpriced"));
+  const compact = renderLearnPlan(plan).split("\n").filter((line) => line.startsWith("no price"));
   assert.equal(compact.length, 1, compact.join("\n"));
-  assert.match(compact[0], /^unpriced {2}2 models · 10M tokens excluded — total is a floor \(\S+ learn --all lists them\)$/);
+  assert.match(compact[0], /^no price {2}2 models \(10M tokens\) left out, so the real total is higher · \S+ learn --all lists them$/);
   const all = renderLearnPlan(plan, { verbose: true, all: true });
   assert.match(all, /claude-imaginary-9/);
   assert.match(all, /gpt-imaginary/);
@@ -88,8 +88,8 @@ test("several unpriced models collapse to one compact line; --all lists each", (
 
 test("a plan without spend renders exactly as before", () => {
   const out = renderLearnPlan(basePlan);
-  assert.doesNotMatch(out, /window cost/);
-  assert.doesNotMatch(out, /effective input/);
+  assert.doesNotMatch(out, /^cost {2}/m);
+  assert.doesNotMatch(out, /input really costs/);
 });
 
 test("confirmed rows carry how they were measured", () => {
@@ -107,7 +107,7 @@ test("confirmed rows carry how they were measured", () => {
       attribution: { method: "deterministic_remeasure", rung: 4, confidence: "high", provenance: "intact" },
     }],
   });
-  assert.match(out, /deterministic_remeasure \(high\)/);
+  assert.match(out, /re-counted the edited file \(high\)/);
 });
 
 test("a tainted fingerprint is shown next to the number, not hidden", () => {
@@ -125,7 +125,7 @@ test("a tainted fingerprint is shown next to the number, not hidden", () => {
       attribution: { method: "deterministic_remeasure", rung: 4, confidence: "low", provenance: "changed_since" },
     }],
   });
-  assert.match(out, /deterministic_remeasure \(low, changed_since\)/);
+  assert.match(out, /re-counted the edited file \(low, file changed since the fix\)/);
 });
 
 test("the savings ledger groups by rung and never prints a blended total", () => {
@@ -174,8 +174,8 @@ test("the savings ledger groups by rung and never prints a blended total", () =>
     total_saved_usd_by_rung: { deterministic_remeasure: 0.036 },
     caveats: ["Savings are grouped by attribution method and never summed across methods."],
   });
-  assert.match(out, /deterministic_remeasure/);
-  assert.match(out, /interrupted_time_series/);
+  assert.match(out, /re-counted the edited file/);
+  assert.match(out, /before vs after/);
   assert.match(out, /confidence high/);
   assert.match(out, /confidence low/);
   // Confounders must be visible in the default view, not behind a flag.
@@ -229,7 +229,7 @@ test("a holdout report shows arm sizes next to the verdict", async () => {
   assert.match(out, /off\s+6 sessions/);
   assert.match(out, /improved\s+-40\.0%/);
   assert.match(out, /\$0\.120\/session/);
-  assert.match(out, /controlled_holdout/);
+  assert.match(out, /on\/off experiment/);
   // A verdict without its confounder is the failure mode this guards.
   assert.match(out, /not randomized tasks/);
 });
@@ -243,7 +243,7 @@ test("an underpowered holdout shows no verdict dressed as a win", async () => {
     attribution: { method: "unattributed", rung: 0, confidence: "none", provenance: "not_fingerprinted" },
     caveats: ["Each arm needs at least 5 sessions before a verdict."],
   });
-  assert.match(out, /insufficient_data/);
+  assert.match(out, /not enough data yet/);
   assert.match(out, /at least 5 sessions/);
   assert.doesNotMatch(out, /\$/);
 });

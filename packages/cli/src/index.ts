@@ -16422,15 +16422,43 @@ type LearnDiff = { days: number; gone: number; back: number; fresh: number };
 // learnEmpty names the window the proxy actually scanned (plan.window.since;
 // older proxies omit it and always scanned 30d).
 function learnEmpty(plan: LearnPlan): string {
-  const since = plan.window?.since || "30d";
-  return `no Claude Code, Codex, Gemini CLI, opencode or aider sessions found in the last ${since} — the plan needs a block repeated across ≥3 sessions; run \`caveman claude\` a few times, then \`caveman learn\``;
+  const since = learnSince(plan.window?.since || "30d");
+  return `no Claude Code, Codex, Gemini CLI, opencode or aider sessions found in the last ${since}. A score needs the same text repeated in at least 3 sessions. Use your agent a few times (for example \`caveman claude\`), then run \`caveman learn\` again`;
 }
+
+// learnNoScoreYet explains why there is no score: the score needs the same
+// text repeated in at least 3 sessions.
+function learnNoScoreYet(sessions: number): string {
+  return `${commaCount(sessions)} sessions read · no score yet: it needs the same text repeated in at least 3 sessions. Keep using your agent (for example \`${invokedAs()} claude\`), then run \`${invokedAs()} learn\` again`;
+}
+
+const LEARN_CLASS_LABELS: Record<string, string> = {
+  reducible: "safe fix",
+  recurring_context: "repeated text",
+  behavioral: "habit",
+  load_bearing: "needed",
+};
+
+function learnClassLabel(klass: string): string {
+  return LEARN_CLASS_LABELS[klass] ?? klass.replaceAll("_", " ");
+}
+
+// learnSince turns a --since value like "30d" into "30 days".
+function learnSince(since: string): string {
+  const days = /^(\d+)d$/.exec(since)?.[1];
+  return days ? `${days} day${days === "1" ? "" : "s"}` : since;
+}
+
+function commaCount(value: number): string {
+  return Math.round(value).toLocaleString("en-US");
+}
+
 const LEARN_DETAILED_NEXT =
-  "next:  caveman tools skills install caveman-learn   (review + apply, with consent)  ·  preview one: caveman learn apply <sink_id> --dry-run";
+  "next:  caveman tools skills install caveman-learn   (review and apply fixes; asks first)  ·  preview one fix: caveman learn apply <id> --dry-run";
 const LEARN_ALL_FOOTER = [
-  "advanced: caveman learn applied <sink_id> [--fix-kind <kind>] [--note <text>]   record an approved, re-measured fix",
-  "simulate: caveman learn simulate <sink_id...>   sum counterfactual scale over scanned history",
-  "scope:    caveman learn --repo <substring>   filter sessions before analysis",
+  "advanced: caveman learn applied <id> [--fix-kind <kind>] [--note <text>]   record a fix you approved, so later runs can measure it",
+  "simulate: caveman learn simulate <id...>   estimate what fixes would have saved over your past sessions",
+  "scope:    caveman learn --repo <substring>   only read sessions from matching repositories",
 ];
 const LEARN_SUMMARY_LIMIT = 3;
 
@@ -16464,14 +16492,15 @@ function renderLearnDetailedRows(plan: LearnPlan, markdown: boolean): string[] {
   const lines: string[] = [];
   for (const [index, sink] of plan.sinks.entries()) {
     const lead = markdown ? `${index + 1}. **${sink.title}**` : `${index + 1}. ${sink.title}`;
-    lines.push(`${lead}  ·  ${sink.sink_id}  ·  ${sink.class}`);
+    lines.push(lead);
+    lines.push(`   ${learnClassLabel(sink.class)}  ·  id: ${sink.sink_id}`);
     const observed = typeof sink.tokens_observed === "number" && sink.tokens_observed > 0
-      ? ` · ~${humanTokens(sink.tokens_observed)} tokens observed (historical)`
+      ? ` · ${commaCount(sink.tokens_observed)} tokens so far`
       : "";
     const prefix = learnMeasuredPrefixSuffix(sink);
-    lines.push(`   ~${humanTokens(sink.tokens_per_turn)} tokens/turn · ~${humanTokens(sink.tokens_per_day_rate)} tokens/day${observed} · basis: inferred${prefix}`);
+    lines.push(`   ${commaCount(sink.tokens_per_turn)} tokens per message · ${commaCount(sink.tokens_per_day_rate)} tokens a day${observed} · estimate${prefix}`);
     if (KNOWN_PRACTICE_IDS.has(sink.practice_id)) {
-      lines.push(`   practice: ${sink.practice_id} · unmeasured — verified nowhere yet`);
+      lines.push(`   practice: ${sink.practice_id} · not measured or verified yet`);
     }
     if (sink.suggestion) lines.push(`   ${sink.suggestion}`);
   }
@@ -16487,7 +16516,7 @@ function learnMeasuredPrefixSuffix(sink: LearnSink | undefined): string {
   if (!sink || sink.sink_id !== "config_tax:baseline") return "";
   const measured = learnEvidenceNumber(sink, "measured_prefix_tokens");
   return measured && measured > 0
-    ? ` · provider-counted prefix ~${humanTokens(measured)} (turn-1 median)`
+    ? ` · a session's first message is ~${humanTokens(measured)} tokens (typical, counted by your provider)`
     : "";
 }
 
@@ -16527,7 +16556,7 @@ export type LearnTuiViewModel = {
 // line; they carry no token rate, so they rarely make the top moves.
 function learnMemoryHealthLine(plan: LearnPlan): string | undefined {
   const count = plan.sinks.filter((sink) => sink.sink_id.startsWith("memory_health:")).length;
-  return count > 0 ? `memory & rules  ${count} finding${count === 1 ? "" : "s"} — ${invokedAs()} learn --all` : undefined;
+  return count > 0 ? `memory files  ${count} finding${count === 1 ? "" : "s"} — see ${invokedAs()} learn --all` : undefined;
 }
 
 export function learnSummaryMoves(plan: LearnPlan): LearnSummaryMove[] {
@@ -16537,17 +16566,17 @@ export function learnSummaryMoves(plan: LearnPlan): LearnSummaryMove[] {
   if (best) {
     const confidenceLabels: Record<string, string> = {
       measured_usage: "measured",
-      transcript_inferred: "transcript",
+      transcript_inferred: "estimated from transcripts",
       static_estimate: "estimate",
     };
     const confidence = confidenceLabels[best.confidence] ?? best.confidence;
     const detail = [
-      `sink: ${best.top_sink_id}`,
+      best.fix_label,
       best.combined_rate_per_day > 0
-        ? `~${humanTokens(best.combined_rate_per_day)} tokens/day`
+        ? `~${humanTokens(best.combined_rate_per_day)} tokens a day`
         : "",
       best.combined_observed_in_window > 0
-        ? `~${humanTokens(best.combined_observed_in_window)} tokens observed`
+        ? `~${humanTokens(best.combined_observed_in_window)} tokens so far`
         : "",
       confidence,
     ].filter(Boolean);
@@ -16570,27 +16599,29 @@ export function learnSummaryMoves(plan: LearnPlan): LearnSummaryMove[] {
       const largest = Math.max(0, ...recurring.map((item) => learnEvidenceNumber(item, "block_tokens") ?? 0));
       const sessions = Math.max(0, ...recurring.map((item) => learnEvidenceNumber(item, "recurrence_sessions") ?? 0));
       const facts = [
-        "recurring context",
+        "repeated text",
         largest > 0 ? `largest ~${humanTokens(largest)} tokens` : "",
-        sessions > 0 ? `up to ${sessions} sessions` : "",
-        "inferred",
+        sessions > 0 ? `in up to ${commaCount(sessions)} sessions` : "",
+        "estimate",
       ].filter(Boolean);
       moves.push({
-        title: `${recurring.length} context block${recurring.length === 1 ? "" : "s"} repeat across sessions`,
-        kind: "recurring context",
+        title: recurring.length === 1
+          ? "1 piece of text gets pasted again in many sessions"
+          : `${recurring.length} pieces of text get pasted again in many sessions`,
+        kind: "repeated text",
         detail: facts.join(" · "),
-        action: "Review selected blocks before moving them to memory; repetition does not prove they are unnecessary.",
+        action: "Check each one before moving it to Caveman memory. Repeating doesn't prove the text is unneeded.",
       });
     } else {
       const rates = [
-        sink.class.replaceAll("_", " "),
-        sink.tokens_per_turn > 0 ? `~${humanTokens(sink.tokens_per_turn)} tokens/turn` : "",
-        sink.tokens_per_day_rate > 0 ? `~${humanTokens(sink.tokens_per_day_rate)} tokens/day` : "",
-        "inferred",
+        learnClassLabel(sink.class),
+        sink.tokens_per_turn > 0 ? `~${humanTokens(sink.tokens_per_turn)} tokens in every message` : "",
+        sink.tokens_per_day_rate > 0 ? `~${humanTokens(sink.tokens_per_day_rate)} tokens a day` : "",
+        "estimate",
       ].filter(Boolean);
       moves.push({
         title: sink.title,
-        kind: sink.class.replaceAll("_", " "),
+        kind: learnClassLabel(sink.class),
         detail: rates.join(" · "),
         ...(sink.suggestion ? { action: compactLearnText(sink.suggestion) } : {}),
       });
@@ -16613,23 +16644,23 @@ function renderLearnSummaryRows(plan: LearnPlan): string[] {
 function learnSourceLine(plan: LearnPlan, sessions: number): string {
   const by = plan.sessions_by_source ?? {};
   const sourceBits = [
-    by.claude ? `Claude ${by.claude}` : "",
-    by.codex ? `Codex ${by.codex}` : "",
-    by.gemini ? `Gemini ${by.gemini}` : "",
-    by.opencode ? `opencode ${by.opencode}` : "",
-    by.aider ? `aider ${by.aider}` : "",
+    by.claude ? `Claude ${commaCount(by.claude)}` : "",
+    by.codex ? `Codex ${commaCount(by.codex)}` : "",
+    by.gemini ? `Gemini ${commaCount(by.gemini)}` : "",
+    by.opencode ? `opencode ${commaCount(by.opencode)}` : "",
+    by.aider ? `aider ${commaCount(by.aider)}` : "",
   ].filter(Boolean);
-  return `${sessions} sessions${sourceBits.length ? ` · ${sourceBits.join(" · ")}` : ""}`;
+  return `${commaCount(sessions)} sessions read${sourceBits.length ? ` · ${sourceBits.join(" · ")}` : ""}`;
 }
 
 function learnDiffText(diff: LearnDiff | undefined): string | undefined {
   if (!diff) return undefined;
   const bits = [
-    diff.gone ? `${diff.gone} move${diff.gone === 1 ? "" : "s"} gone` : "",
-    diff.back ? `${diff.back} back` : "",
+    diff.gone ? `${diff.gone} finding${diff.gone === 1 ? "" : "s"} gone` : "",
+    diff.back ? `${diff.back} came back` : "",
     diff.fresh ? `${diff.fresh} new` : "",
   ].filter(Boolean);
-  return bits.length ? `since your last run ${diff.days}d ago: ${bits.join(" · ")}` : undefined;
+  return bits.length ? `since your last run ${diff.days} day${diff.days === 1 ? "" : "s"} ago: ${bits.join(" · ")}` : undefined;
 }
 
 export function buildLearnTuiModel(
@@ -16646,24 +16677,32 @@ export function buildLearnTuiModel(
   const status = sessions === 0
     ? learnEmpty(plan)
     : !recurring
-      ? `${sessions} sessions scanned · no block repeated across ≥3 sessions yet — keep running \`${invokedAs()} claude\`, then re-run \`${invokedAs()} learn\``
+      ? learnNoScoreYet(sessions)
       : undefined;
   return {
     score: recurring ? plan.cave_score.score : null,
-    scope: "local setup · inferred · not billed spend · separate from org Cave Score",
+    scope: LEARN_SCORE_SCOPE,
     sessions: learnSourceLine(plan, sessions),
     ...(diffText ? { diff: diffText } : {}),
     ...(trend.length ? { trend } : {}),
     ...(status ? { status } : {}),
     moves: learnSummaryMoves(plan),
     ...(protectedSink
-      ? { protected: `${protectedSink.title.replace(/^Your\s+/i, "")} · included in score, never auto-fixed${learnMeasuredPrefixSuffix(protectedSink)}` }
+      ? { protected: learnProtectedText(protectedSink) }
       : {}),
     ...(memory ? { memory } : {}),
     ...(confirmed > 0 ? { confirmed } : {}),
     findings: plan.sinks.length,
     report: options.report ?? learnReportPath(),
   };
+}
+
+const LEARN_SCORE_SCOPE = "your setup on this computer · an estimate, not your bill · separate from Caveman Cloud's team score";
+
+// learnProtectedText describes the needed (load-bearing) baseline: counted in
+// the score, never changed.
+function learnProtectedText(sink: LearnSink): string {
+  return `${sink.title} · counts in the score, but Caveman never changes it${learnMeasuredPrefixSuffix(sink)}`;
 }
 
 // renderLearnSpendLines shows what the scanned window cost and, more usefully,
@@ -16674,32 +16713,33 @@ function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean,
   if (!spend) return [];
   const lines: string[] = [];
   const currency = spend.currency || "USD";
-  const label = markdown ? "### Window cost" : "window cost";
+  const label = markdown ? "### Cost" : "cost";
   if (spend.usd > 0) {
-    const window = spend.window_days ? ` over ${spend.window_days}d` : "";
-    lines.push(`${label}  ${fmtMoney(spend.usd, currency)}${window}  ·  provider-counted tokens at published rates`);
+    const window = spend.window_days ? ` for the last ${spend.window_days} day${spend.window_days === 1 ? "" : "s"}` : "";
+    lines.push(`${label}  ${fmtMoney(spend.usd, currency)}${window}  ·  tokens your provider counted, at list prices`);
   }
   const multiplier = spend.effective_input_multiplier ?? 0;
   const rate = spend.effective_input_usd_per_mtok ?? 0;
   if (multiplier > 0 && rate > 0) {
-    lines.push(`effective input  ${fmtMoney(rate, currency)}/Mtok  ·  ${multiplier.toFixed(2)}x list after cache reuse`);
+    const share = multiplier * 100 >= 1 ? `${Math.round(multiplier * 100)}%` : "under 1%";
+    lines.push(`input really costs  ${fmtMoney(rate, currency)} per 1M tokens  ·  ${share} of list price, thanks to caching`);
   }
   const components = (spend.components ?? []).filter((component) => component.usd > 0);
   if (components.length > 0 && spend.usd > 0) {
-    lines.push(components.map((component) => `${component.key.replace("_", " ")} ${Math.round(component.share_pct ?? 0)}%`).join("  ·  "));
+    lines.push(`where it went  ${components.map((component) => `${component.key.replaceAll("_", " ")} ${Math.round(component.share_pct ?? 0)}%`).join("  ·  ")}`);
   }
   const unpriced = spend.unpriced ?? [];
   if (!full && unpriced.length > 1) {
     // Compact view: one line; --all, --md, JSON and HTML keep every model.
     const tokens = unpriced.reduce((sum, row) => sum + row.tokens, 0);
-    lines.push(`unpriced  ${unpriced.length} models · ${humanTokens(tokens)} tokens excluded — total is a floor (${invokedAs()} learn --all lists them)`);
+    lines.push(`no price  ${unpriced.length} models (${humanTokens(tokens)} tokens) left out, so the real total is higher · ${invokedAs()} learn --all lists them`);
   } else {
     for (const row of unpriced) {
-      lines.push(`unpriced  ${row.provider}/${row.model}  ${humanTokens(row.tokens)} tokens excluded — total is a floor`);
+      lines.push(`no price  ${row.provider}/${row.model}  ${humanTokens(row.tokens)} tokens left out, so the real total is higher`);
     }
   }
   if (lines.length > 0) {
-    lines.push("subscription plans have no marginal cost; the figure is then the API-equivalent value of the tokens");
+    lines.push("on a subscription plan you pay nothing extra per token; the cost then shows what the tokens would cost on the API");
   }
   return lines;
 }
@@ -16721,25 +16761,25 @@ export function renderLearnPlan(
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
   } else if (!recurring) {
     if (plan.sinks.length > 0) {
-      lines.push(...(verbose ? renderLearnDetailedRows(plan, markdown) : ["top moves", ...renderLearnSummaryRows(plan)]), "");
+      lines.push(...(verbose ? renderLearnDetailedRows(plan, markdown) : ["top findings", ...renderLearnSummaryRows(plan)]), "");
       const memory = verbose ? undefined : learnMemoryHealthLine(plan);
       if (memory) lines.push(memory, "");
     }
-    lines.push(`${sessions} sessions scanned · no block repeated across ≥3 sessions yet — keep running \`caveman claude\`, then re-run \`caveman learn\``);
+    lines.push(learnNoScoreYet(sessions));
     lines.push(...(verbose ? [] : learnTrendLines(plan.trends)));
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
   } else {
     lines.push(markdown
-      ? `## Setup Score ${plan.cave_score.score} — basis: inferred (local sessions, not billed spend)`
+      ? `## Setup Score ${plan.cave_score.score}/100 — an estimate from your local sessions, not your bill`
       : verbose
-        ? `Setup Score ${plan.cave_score.score}  ·  basis: inferred (local sessions, not billed spend)`
+        ? `Setup Score ${plan.cave_score.score}/100  ·  an estimate from your local sessions, not your bill`
         : `Setup Score ${plan.cave_score.score}/100`);
     if (verbose) {
-      lines.push("scores your local agent setup — the console's Cave Score (org) scores org traffic;");
-      lines.push("the two are different scales and will not match");
-      lines.push(`${sessions} sessions scanned${learnSourceLine(plan, sessions).replace(`${sessions} sessions`, "")}`);
+      lines.push("scores your agent setup on this computer. Caveman Cloud's team score measures your team's traffic;");
+      lines.push("the two use different scales and will not match");
+      lines.push(learnSourceLine(plan, sessions));
     } else {
-      lines.push("local setup · inferred · not billed spend · separate from org Cave Score");
+      lines.push(LEARN_SCORE_SCOPE);
       lines.push(learnSourceLine(plan, sessions));
     }
     const diffText = learnDiffText(options.diff);
@@ -16754,22 +16794,19 @@ export function renderLearnPlan(
       lines.push("", ...renderLearnDetailedRows(plan, markdown), "", LEARN_DETAILED_NEXT);
     } else {
       const protectedSink = plan.sinks.find((sink) => sink.class === "load_bearing");
-      lines.push("", "top moves", ...renderLearnSummaryRows(plan));
-      if (protectedSink) {
-        const title = protectedSink.title.replace(/^Your\s+/i, "");
-        lines.push(`protected  ${title} · included in score, never auto-fixed${learnMeasuredPrefixSuffix(protectedSink)}`);
-      }
+      lines.push("", "top findings", ...renderLearnSummaryRows(plan));
+      if (protectedSink) lines.push(`needed  ${learnProtectedText(protectedSink)}`);
       const memory = learnMemoryHealthLine(plan);
       if (memory) lines.push(memory);
       lines.push(
         "",
         `next:  ${invokedAs()} learn implement   fix with Claude Code or Codex; asks before every edit`,
-        `details: ${invokedAs()} learn --all   ${plan.sinks.length} findings`,
+        `details: ${invokedAs()} learn --all   all ${plan.sinks.length} findings`,
       );
     }
   }
   if (options.all === true && (plan.repos?.length ?? 0) > 0) {
-    lines.push("", markdown ? "### Per-repo" : "per-repo", ...renderLearnRepos(plan.repos!, markdown));
+    lines.push("", markdown ? "### Per repository" : "per repository", ...renderLearnRepos(plan.repos!, markdown));
   }
   if (options.all === true) {
     lines.push("", ...(markdown ? ["### Advanced", ...LEARN_ALL_FOOTER.map((line) => `- ${line}`)] : LEARN_ALL_FOOTER));
@@ -16786,9 +16823,9 @@ function learnMeasureValue(value: number | undefined): string {
 
 function learnMeasureUnit(unit: string): string {
   const labels: Record<string, string> = {
-    config_tokens_per_turn: "config tokens/turn",
-    turns_over_half_window_pct: "turns over half-window (%)",
-    recurrence_present: "recurrence present",
+    config_tokens_per_turn: "setup tokens per message",
+    turns_over_half_window_pct: "% of messages past half the window",
+    recurrence_present: "repeated text still present",
   };
   return labels[unit] ?? unit.replaceAll("_", " ");
 }
@@ -16808,25 +16845,25 @@ function renderLearnConfirmed(confirmed: LearnConfirmed[] | undefined, markdown:
   const rows = confirmed.flatMap((entry) => {
     const applied = learnAppliedDate(entry.applied_at);
     if (entry.verdict === "insufficient_data") {
-      const line = `${symbols[entry.verdict]} ${entry.sink_id} — applied ${applied} · needs more post-fix sessions (${entry.sessions_after} sessions so far)`;
+      const line = `${symbols[entry.verdict]} ${entry.sink_id} — applied ${applied} · needs more sessions after the fix (${entry.sessions_after} so far)`;
       return [markdown ? `- *${line}*` : line];
     }
     if (entry.after === undefined || !Number.isFinite(entry.after)) return [];
     // How it was measured travels with the number. A confirmed row without its
     // attribution reads as stronger evidence than it is.
     const attribution = entry.attribution
-      ? ` · ${entry.attribution.method} (${entry.attribution.confidence}${entry.attribution.provenance === "intact" ? "" : `, ${entry.attribution.provenance}`})`
+      ? ` · ${learnMethodLabel(entry.attribution.method)} (${entry.attribution.confidence}${entry.attribution.provenance === "intact" ? "" : `, ${learnProvenanceLabel(entry.attribution.provenance)}`})`
       : "";
     const line = `${symbols[entry.verdict]} ${entry.sink_id} — ${learnMeasureValue(entry.before)} → ${learnMeasureValue(entry.after)} ${learnMeasureUnit(entry.unit)} over ${entry.sessions_after} sessions (${entry.verdict}) · applied ${applied}${attribution}`;
     return [markdown ? `- ${line}` : line];
   });
   if (rows.length === 0) return [];
-  return [markdown ? "### Confirmed fixes" : "confirmed fixes", ...rows];
+  return [markdown ? "### Fixes you applied" : "fixes you applied", ...rows];
 }
 
 function renderLearnRepos(repos: LearnRepo[], markdown: boolean): string[] {
   return repos.map((repo) =>
-    `${markdown ? "- " : ""}${repo.repo} · ${repo.sessions} sessions · dumbzone ${repo.dumbzone_pct}% · median context ~${humanTokens(repo.median_context)}`,
+    `${markdown ? "- " : ""}${repo.repo} · ${commaCount(repo.sessions)} sessions · ${repo.dumbzone_pct}% of messages past half the window · typical message ~${humanTokens(repo.median_context)} tokens`,
   );
 }
 
@@ -16894,7 +16931,7 @@ function proxyExecLearn(proxyArgs: string[], progress: boolean): string {
   } catch (error) {
     const e = error as { stdout?: string; stderr?: string; status?: number; code?: string; killed?: boolean; signal?: string; message?: string };
     if (e.code === "ETIMEDOUT" || (e.killed && e.code !== "ENOBUFS")) {
-      console.error(`learn scan timed out after ${seconds}s — no score computed; re-run with \`caveman learn --json\` to capture the raw scan`);
+      console.error(`learn scan timed out after ${seconds}s, so there is no score; run \`caveman learn --json\` to capture the raw scan`);
       process.exit(1);
     }
     if (e.stderr) process.stderr.write(e.stderr);
@@ -16943,7 +16980,7 @@ function proxyExecLearnAsync(proxyArgs: string[], onProgress?: (message: string)
     child.once("close", (code) => {
       clearTimeout(timer);
       if (timedOut) {
-        reject(new Error(`learn scan timed out after ${seconds}s — no score computed; re-run with \`caveman learn --json\` to capture the raw scan`));
+        reject(new Error(`learn scan timed out after ${seconds}s, so there is no score; run \`caveman learn --json\` to capture the raw scan`));
         return;
       }
       if (code !== 0) {
@@ -16998,22 +17035,22 @@ function renderLearnApply(raw: Record<string, any>, dryRun: boolean): string {
   const candidate = (raw.candidate && typeof raw.candidate === "object" ? raw.candidate : {}) as Record<string, any>;
   const klass = String(raw.class ?? candidate.class ?? "");
   if (klass === "behavioral" || klass === "load_bearing") {
-    return "behavioral finding — no automatic fix; the caveman-learn skill turns this into a consent-gated nudge\n";
+    return "this is a habit or a needed part of your setup — there is no automatic fix; the caveman-learn skill can turn it into a reminder, with your yes\n";
   }
   const lines = [
     String(candidate.title ?? raw.sink_id ?? "learn candidate"),
-    `sink: ${String(raw.sink_id ?? candidate.sink_id ?? "")}`,
+    `id: ${String(raw.sink_id ?? candidate.sink_id ?? "")}`,
   ];
   const locations = candidate.what_to_offload?.locators ?? candidate.evidence?.locators;
   if (locations) lines.push(`locations: ${JSON.stringify(locations)}`);
   if (candidate.expected_tokens_per_turn_saved != null) {
-    lines.push(`expected: ~${humanTokens(Number(candidate.expected_tokens_per_turn_saved))} tokens/turn`);
+    lines.push(`expected: ~${humanTokens(Number(candidate.expected_tokens_per_turn_saved))} fewer tokens in every message`);
   }
-  lines.push("gates: net-token-negative · never-dumber");
+  lines.push("applies only if: it uses fewer tokens overall · and answers don't get worse");
   if (dryRun) lines.push("nothing changed — this is a preview");
   else {
     lines.push(`prepared, not applied — ${String(raw.candidate_path ?? join(cavemanHome(), "candidates", `learn-${raw.sink_id}.json`))}`);
-    lines.push("the only thing that applies it: caveman tools skills install caveman-learn");
+    lines.push("to apply it, use the caveman-learn skill: caveman tools skills install caveman-learn");
   }
   return `${lines.join("\n")}\n`;
 }
@@ -17028,7 +17065,7 @@ export function renderLearnSavings(raw: Record<string, any>): string {
   const out: string[] = [];
   if (rows.length === 0) {
     out.push("no fix recorded yet");
-    out.push("apply one through the caveman-learn skill and it lands here with its attribution");
+    out.push("apply one with the caveman-learn skill and it shows up here, with how it was measured");
     for (const caveat of (raw.caveats ?? []) as string[]) out.push(dim(`· ${caveat}`));
     return `${out.join("\n")}\n`;
   }
@@ -17042,8 +17079,8 @@ export function renderLearnSavings(raw: Record<string, any>): string {
   for (const [method, group] of grouped) {
     const total = byRung?.[method];
     const head = total != null && currency
-      ? `${method}  ${fmtMoney(total, currency)}/day`
-      : method;
+      ? `${learnMethodLabel(method)}  ${fmtMoney(total, currency)}/day`
+      : learnMethodLabel(method);
     out.push(bold(head));
     for (const row of group) {
       const verdict = String(row.verdict ?? "");
@@ -17053,7 +17090,7 @@ export function renderLearnSavings(raw: Record<string, any>): string {
         : verdict;
       const money = row.saved_usd != null && currency ? `  ${fmtMoney(Number(row.saved_usd), currency)}/day` : "";
       out.push(`  ${badge} ${String(row.sink_id ?? "")}  ${saved}${money}`);
-      out.push(dim(`      ${String(row.attribution?.provenance ?? "")} · confidence ${String(row.attribution?.confidence ?? "")}`));
+      out.push(dim(`      ${learnProvenanceLabel(String(row.attribution?.provenance ?? ""))} · confidence ${String(row.attribution?.confidence ?? "")}`));
       for (const confounder of (row.attribution?.confounders ?? []) as string[]) {
         out.push(dim(`      · ${confounder}`));
       }
@@ -17062,6 +17099,30 @@ export function renderLearnSavings(raw: Record<string, any>): string {
   }
   for (const caveat of (raw.caveats ?? []) as string[]) out.push(dim(`· ${caveat}`));
   return `${out.join("\n")}\n`;
+}
+
+// Plain names for attribution methods and provenance; the enums stay in JSON.
+const LEARN_METHOD_LABELS: Record<string, string> = {
+  deterministic_remeasure: "re-counted the edited file",
+  counterfactual_replay: "replayed past sessions",
+  controlled_holdout: "on/off experiment",
+  interrupted_time_series: "before vs after",
+  unattributed: "not measured yet",
+};
+const LEARN_PROVENANCE_LABELS: Record<string, string> = {
+  intact: "fix still in place",
+  changed_since: "file changed since the fix",
+  target_missing: "file is gone",
+  not_fingerprinted: "can't confirm the fix is still there",
+  not_applicable: "",
+};
+
+function learnMethodLabel(method: string): string {
+  return LEARN_METHOD_LABELS[method] ?? method.replaceAll("_", " ");
+}
+
+function learnProvenanceLabel(provenance: string): string {
+  return LEARN_PROVENANCE_LABELS[provenance] ?? provenance.replaceAll("_", " ");
 }
 
 // fmtMoney keeps sub-cent figures legible instead of rounding real spend to
@@ -17081,11 +17142,11 @@ export function fmtMoney(value: number, currency: string): string {
 export function renderExperimentReport(raw: Record<string, any>): string {
   const arms = Array.isArray(raw.arms) ? (raw.arms as Record<string, any>[]) : [];
   const out: string[] = [bold(`experiment ${String(raw.label ?? "")}`)];
-  if (raw.sink_id) out.push(dim(`sink ${String(raw.sink_id)} · ${String(raw.fix_kind ?? "")}`));
+  if (raw.sink_id) out.push(dim(`id ${String(raw.sink_id)} · ${String(raw.fix_kind ?? "")}`));
   for (const arm of arms) {
-    out.push(`  ${String(arm.arm).padEnd(4)}  ${arm.sessions} sessions  median ${humanTokens(Number(arm.median_session_tokens ?? 0))} tok/session  ${Number(arm.error_turns_per_turn ?? 0).toFixed(2)} err/turn`);
+    out.push(`  ${String(arm.arm).padEnd(4)}  ${arm.sessions} sessions  typical session ${humanTokens(Number(arm.median_session_tokens ?? 0))} tokens  ${Number(arm.error_turns_per_turn ?? 0).toFixed(2)} errors per message`);
   }
-  const verdict = String(raw.verdict ?? "insufficient_data");
+  const verdict = String(raw.verdict ?? "insufficient_data").replace("insufficient_data", "not enough data yet");
   const badge = verdict === "improved" ? green("✓") : verdict === "regressed" ? red("✗") : yellow("~");
   const delta = raw.median_session_tokens_delta_pct != null
     ? `  ${Number(raw.median_session_tokens_delta_pct) > 0 ? "+" : ""}${Number(raw.median_session_tokens_delta_pct).toFixed(1)}%`
@@ -17095,7 +17156,7 @@ export function renderExperimentReport(raw: Record<string, any>): string {
     : "";
   out.push(`  ${badge} ${verdict}${delta}${money}`);
   if (raw.attribution?.method) {
-    out.push(dim(`  ${String(raw.attribution.method)} · confidence ${String(raw.attribution.confidence ?? "")}`));
+    out.push(dim(`  ${learnMethodLabel(String(raw.attribution.method))} · confidence ${String(raw.attribution.confidence ?? "")}`));
     for (const confounder of (raw.attribution.confounders ?? []) as string[]) out.push(dim(`  · ${confounder}`));
   }
   for (const caveat of (raw.caveats ?? []) as string[]) out.push(dim(`  · ${caveat}`));
@@ -17110,9 +17171,9 @@ export function renderExperiments(raw: Record<string, any> | Record<string, any>
   return experiments.map((exp) => {
     const arms = Array.isArray(exp.arms) ? (exp.arms as Record<string, any>[]) : [];
     const open = arms.find((arm) => !arm.ended_at);
-    const state = exp.stopped_at ? "stopped" : open ? `arm ${String(open.arm)} since ${String(open.started_at)}` : "no open arm";
-    const sink = exp.sink_id ? dim(`  sink ${String(exp.sink_id)}${exp.fix_kind ? ` · ${String(exp.fix_kind)}` : ""}`) : "";
-    return `${bold(String(exp.label ?? ""))}  ${state}  ${arms.length} interval${arms.length === 1 ? "" : "s"}${sink}\n`;
+    const state = exp.stopped_at ? "stopped" : open ? `${String(open.arm)} since ${String(open.started_at)}` : "paused";
+    const sink = exp.sink_id ? dim(`  id ${String(exp.sink_id)}${exp.fix_kind ? ` · ${String(exp.fix_kind)}` : ""}`) : "";
+    return `${bold(String(exp.label ?? ""))}  ${state}  ${arms.length} on/off period${arms.length === 1 ? "" : "s"}${sink}\n`;
   }).join("");
 }
 
@@ -17129,36 +17190,37 @@ export function renderLearnReconcile(raw: Record<string, any>): string {
   for (const row of rows) {
     out.push(`  ${String(row.model ?? "")}  billed ${humanTokens(Number(row.billed_tokens ?? 0))}  measured ${humanTokens(Number(row.measured_tokens ?? 0))}  ${Number(row.coverage_pct ?? 0).toFixed(1)}%`);
   }
-  out.push(`  unattributed ${humanTokens(Number(raw.unattributed_tokens ?? 0))} tokens`);
+  out.push(`  billed but not seen here ${humanTokens(Number(raw.unattributed_tokens ?? 0))} tokens`);
   for (const caveat of (raw.caveats ?? []) as string[]) out.push(dim(`  · ${caveat}`));
   return `${out.join("\n")}\n`;
 }
 
 function learnUsage(): void {
   console.log(`${invokedAs()} learn [--all|--plain|--json|--md] [--since 30d] [--sources claude,codex,gemini,opencode,aider]
-  default       interactive setup score + grouped top moves
-  --plain       compact text; no animation or keyboard menu
-  --all         every finding, internal id, basis, and suggestion
-  --json|--md   machine-readable or detailed Markdown output
+  shows where your agent's tokens go, and what to fix first
+  default       interactive Setup Score + top findings
+  --plain       short text; no animation or keyboard menu
+  --all         every finding, with its id and suggested fix
+  --json|--md   output for tools, or a full Markdown report
   implement     open Claude Code or Codex to review and fix findings
-  apply         prepare one finding for consent-gated editing
-  autopilot     [status|on|off] background refresh after sessions end
+  apply         prepare one fix; nothing changes without your yes
+  autopilot     [status|on|off] refresh the report after sessions end
 
-  savings       what applied fixes returned, grouped by how it was measured
-  experiment    prove a change with an on/off holdout over your own sessions
+  savings       what fixes you applied saved, grouped by how it was measured
+  experiment    test a change by switching it on and off across your own sessions
                 start <label> [--sink <id>] · arm <label> on|off · report <label>
                 · list · stop <label>
-  export        privacy-safe digest of findings (identities and magnitudes only)
+  export        a privacy-safe summary of findings (names and sizes only)
   reconcile --usage-export <csv>
-                compare what was measured against what the provider billed
+                compare what Caveman measured with what your provider billed
 
   advanced:
-  applied <sink_id> [--fix-kind <kind>] [--note <text>]
-                record an approved, re-measured fix
-  simulate <sink_id...>
-                sum counterfactual scale over scanned history
+  applied <id> [--fix-kind <kind>] [--note <text>]
+                record a fix you approved, so later runs can measure it
+  simulate <id...>
+                estimate what fixes would have saved over your past sessions
   --repo <substring>
-                filter sessions before analysis`);
+                only read sessions from matching repositories`);
 }
 
 // learnAutopilot: status/on/off for the SessionEnd background refresh. `run`
@@ -17178,7 +17240,7 @@ function learnImplementUsage(): void {
   console.log(`${invokedAs()} learn implement [claude|codex] [--prompt "<focus>"]
   opens an interactive agent with the current local learn report
   installs the caveman-learn safety guide when missing
-  never edits load-bearing findings; asks before every edit`);
+  never edits findings marked needed; asks before every edit`);
 }
 
 function learnImplementPrompt(focus: string): string {

@@ -139,7 +139,7 @@ exit 99
     },
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /3 sessions scanned/);
+  assert.match(result.stdout, /3 sessions read/);
   const args = readFileSync(argsFile, "utf8");
   assert.match(args, /--write-report-token/);
   assert.doesNotMatch(args, /report\n--json/);

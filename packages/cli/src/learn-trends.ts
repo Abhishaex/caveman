@@ -70,9 +70,22 @@ function trendValue(value: number | undefined, unit: string): string {
   if (value === undefined || !Number.isFinite(value)) return "—";
   if (unit === "tokens") return compactNumber(value);
   if (unit === "pct") return `${value.toFixed(1).replace(/\.0$/, "")}%`;
-  if (unit === "per_100_turns") return `${value.toFixed(1).replace(/\.0$/, "")}/100 turns`;
-  if (unit === "points") return `-${Math.round(value)} pts`;
+  if (unit === "per_100_turns") return `${value.toFixed(1).replace(/\.0$/, "")} per 100 messages`;
+  if (unit === "points") return `-${Math.round(value)} points`;
   return String(value);
+}
+
+// shortDate renders YYYY-MM-DD as "Sep 21".
+export function shortDate(day: string): string {
+  const at = new Date(`${day}T00:00:00Z`);
+  return Number.isNaN(at.getTime())
+    ? day
+    : at.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function currentWeekName(trends: LearnTrends): string {
+  const week = trends.weeks.find((item) => item.week === trends.current_week);
+  return week?.start ? `week of ${shortDate(week.start)}` : trends.current_week;
 }
 
 // Share metrics show the change in percentage points; a relative percent of a
@@ -81,14 +94,14 @@ function trendDelta(metric: LearnTrendMetric): string {
   const sign = (value: number) => (value > 0 ? "+" : "");
   if (metric.unit === "pct" && metric.current !== undefined && metric.prior !== undefined) {
     const diff = metric.current - metric.prior;
-    return `${sign(diff)}${diff.toFixed(1).replace(/\.0$/, "")}pp `;
+    const points = diff.toFixed(1).replace(/\.0$/, "");
+    return `${sign(diff)}${points} point${Math.abs(diff) === 1 ? "" : "s"} `;
   }
   return metric.delta_pct === undefined ? "" : `${sign(metric.delta_pct)}${Math.round(metric.delta_pct)}% `;
 }
 
-function trendChange(metric: LearnTrendMetric, priorWeeks: number): string {
-  if (metric.direction === "insufficient_data") return "insufficient data";
-  return `${trendDelta(metric)}vs prior ${priorWeeks}w · ${metric.direction}`;
+function trendDirection(metric: LearnTrendMetric): string {
+  return metric.direction === "insufficient_data" ? "not enough data" : metric.direction;
 }
 
 // learnTrendLines is the compact 2-4 line section shown after the score.
@@ -98,13 +111,15 @@ export function learnTrendLines(trends: LearnTrends | undefined): string[] {
     .map((key) => trends.metrics.find((metric) => metric.key === key))
     .filter((metric): metric is LearnTrendMetric => metric !== undefined);
   if (metrics.length === 0) return [];
-  const head = `trend ${trends.weeks.length}w`;
+  const head = `last ${trends.weeks.length} weeks`;
   const width = Math.max(...metrics.map((metric) => metric.label.length));
+  const sessions = metrics[0]!.current_sessions;
   return [
     ...metrics.map((metric, index) =>
-      `${index === 0 ? head : " ".repeat(head.length)}  ${metric.label.padEnd(width)}  ${trendSpark(trends, metric)}  ${trendChange(metric, trends.prior_weeks)}  (n=${metric.current_sessions})`,
+      `${index === 0 ? head : " ".repeat(head.length)}  ${metric.label.padEnd(width)}  ${trendSpark(trends, metric)}  ${trendDelta(metric)}${metric.direction === "insufficient_data" ? "" : "· "}${trendDirection(metric)}`,
     ),
-    `${" ".repeat(head.length)}  a trend is not a saving and does not show cause`,
+    `${" ".repeat(head.length)}  ${currentWeekName(trends)} (${sessions.toLocaleString("en-US")} session${sessions === 1 ? "" : "s"}) vs the ${trends.prior_weeks} weeks before`,
+    `${" ".repeat(head.length)}  a trend is not a saving, and it does not show the cause`,
   ];
 }
 
@@ -112,16 +127,16 @@ export function learnTrendLines(trends: LearnTrends | undefined): string[] {
 // and sink movers when saved reports exist.
 export function learnTrendTable(trends: LearnTrends | undefined, markdown: boolean): string[] {
   if (!trends?.metrics?.length) return [];
-  const header = ["metric", `${trends.weeks.length}w`, trends.current_week, `prior ${trends.prior_weeks}w`, "change", "n"];
+  const header = ["measure", `last ${trends.weeks.length} weeks`, currentWeekName(trends), `${trends.prior_weeks} weeks before`, "change", "sessions"];
   const rows = trends.metrics.map((metric) => [
     metric.label,
     trendSpark(trends, metric),
     trendValue(metric.current, metric.unit),
     trendValue(metric.prior, metric.unit),
     metric.direction === "insufficient_data"
-      ? "insufficient data"
+      ? "not enough data"
       : `${trendDelta(metric)}${metric.direction}`,
-    `${metric.current_sessions} vs ${metric.prior_sessions}`,
+    `${metric.current_sessions.toLocaleString("en-US")} vs ${metric.prior_sessions.toLocaleString("en-US")}`,
   ]);
   const lines: string[] = [markdown ? "### Trends" : "trends"];
   if (markdown) {
@@ -131,25 +146,26 @@ export function learnTrendTable(trends: LearnTrends | undefined, markdown: boole
     for (const row of [header, ...rows]) lines.push(row.map((cell, col) => cell.padEnd(widths[col]!)).join("  ").trimEnd());
   }
   const weeks = trends.weeks
-    .map((week) => `${week.week}${week.in_progress ? " (in progress)" : week.partial ? "*" : ""} n=${week.sessions}`)
+    .map((week) => `${shortDate(week.start)}${week.in_progress ? " (still running)" : week.partial ? "*" : ""} (${week.sessions.toLocaleString("en-US")})`)
     .join(" · ");
   lines.push(
-    `weeks (UTC ISO, * partial, ┊ in progress, never compared): ${weeks}`,
-    `medians across sessions, shares pooled across turns; under ${trends.min_sessions} sessions = insufficient data; under ${trends.dead_band_pct}% change = flat`,
+    `weeks start Monday, UTC (sessions in brackets; * only partly scanned; ┊ still running, never compared): ${weeks}`,
+    `token counts use the middle session of each week; percentages count all messages together; weeks under ${trends.min_sessions} sessions show no value; changes under ${trends.dead_band_pct}% count as flat`,
     trends.note,
   );
   const history = trends.score?.history ?? [];
   if (history.length >= 2) {
-    lines.push(`score history (${trends.score?.history_source ?? "snapshots"}): ${history.map((point) => `${point.date.slice(5)} ${point.score}`).join(" → ")}`);
+    lines.push(`Setup Score history: ${history.map((point) => `${shortDate(point.date)} ${point.score}`).join(" → ")}`);
   }
   const movers = trends.movers;
   if (movers) {
     const fmt = (mover: LearnTrendMover) => {
       const delta = mover.delta_tokens_per_turn;
-      return `${mover.title} (${delta > 0 ? "+" : delta < 0 ? "-" : ""}${compactNumber(Math.abs(delta))}/turn, ${mover.status})`;
+      return `${mover.title} (${delta > 0 ? "+" : delta < 0 ? "-" : ""}${compactNumber(Math.abs(delta))} per message, ${mover.status})`;
     };
-    if (movers.grew?.length) lines.push(`grew since ${movers.since} (${movers.days}d): ${movers.grew.map(fmt).join("; ")}`);
-    if (movers.shrank?.length) lines.push(`shrank since ${movers.since} (${movers.days}d): ${movers.shrank.map(fmt).join("; ")}`);
+    const since = `${shortDate(movers.since)} (${movers.days} day${movers.days === 1 ? "" : "s"} ago)`;
+    if (movers.grew?.length) lines.push(`grew since ${since}: ${movers.grew.map(fmt).join("; ")}`);
+    if (movers.shrank?.length) lines.push(`shrank since ${since}: ${movers.shrank.map(fmt).join("; ")}`);
   }
   return markdown ? lines.map((line, index) => (index === 0 || line.startsWith("|") ? line : `- ${line}`)) : lines;
 }

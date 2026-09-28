@@ -55,33 +55,34 @@ test("sparkline scales to the series and marks insufficient weeks", () => {
 test("plain learn shows a compact trend section after the score", () => {
   const out = renderLearnPlan(plan, { report: "/tmp/r.html" });
   const lines = out.split("\n");
-  const at = lines.findIndex((line) => line.startsWith("trend 6w"));
+  const at = lines.findIndex((line) => line.startsWith("last 6 weeks"));
   assert.ok(at > 0 && at < 5, out);
-  assert.equal(lines[at], "trend 6w  tokens/session  ·▃█▆▁┊█  -18% vs prior 4w · improved  (n=212)");
-  assert.equal(lines[at + 1], "          peak context    ·▁█▅▆┊█  +0.5pp vs prior 4w · flat  (n=212)");
-  assert.equal(lines[at + 2], "          a trend is not a saving and does not show cause");
+  assert.equal(lines[at], "last 6 weeks  tokens/session  ·▃█▆▁┊█  -18% · improved");
+  assert.equal(lines[at + 1], "              peak context    ·▁█▅▆┊█  +0.5 points · flat");
+  assert.equal(lines[at + 2], "              week of Aug 24 (212 sessions) vs the 4 weeks before");
+  assert.equal(lines[at + 3], "              a trend is not a saving, and it does not show the cause");
   assert.ok(!out.includes("cache reads"), "compact view keeps to 2-4 lines");
-  assert.ok(!/\$/.test(lines.slice(at, at + 3).join("\n")));
+  assert.ok(!/\$/.test(lines.slice(at, at + 4).join("\n")));
 });
 
 test("--md and --all render a trends table with n and honesty notes", () => {
   const md = renderLearnPlan(plan, { report: "/tmp/r.html", markdown: true });
-  assert.match(md, /### Trends\n\| metric \| 6w \| 2026-W39 \| prior 4w \| change \| n \|/);
-  assert.match(md, /\| cache reads \| ·▆▇█▁┊▁ \| 90% \| 96% \| -6pp worse \| 212 vs 640 \|/);
-  assert.match(md, /- weeks \(UTC ISO, \* partial, ┊ in progress, never compared\): 2026-W35\* n=3 .* 2026-W40 \(in progress\) n=150/);
+  assert.match(md, /### Trends\n\| measure \| last 6 weeks \| week of Aug 24 \| 4 weeks before \| change \| sessions \|/);
+  assert.match(md, /\| cache reads \| ·▆▇█▁┊▁ \| 90% \| 96% \| -6 points worse \| 212 vs 640 \|/);
+  assert.match(md, /- weeks start Monday, UTC \(sessions in brackets; \* only partly scanned; ┊ still running, never compared\): Aug 24\* \(3\) .* Aug 24 \(still running\) \(150\)/);
   assert.match(md, /A trend is not a saving/);
-  assert.match(md, /score history \(snapshots\): 09-01 80 → 09-28 77/);
-  assert.match(md, /grew since 2026-09-19 \(8d\): Config grew \(\+8,459\/turn, changed\)/);
+  assert.match(md, /Setup Score history: Sep 1 80 → Sep 28 77/);
+  assert.match(md, /grew since Sep 19 \(8 days ago\): Config grew \(\+8,459 per message, changed\)/);
   const all = renderLearnPlan(plan, { report: "/tmp/r.html", verbose: true, all: true });
-  assert.match(all, /^trends\nmetric +6w +2026-W39/m);
-  assert.ok(!all.includes("trend 6w  "), "verbose view uses the table, not the compact lines");
+  assert.match(all, /^trends\nmeasure +last 6 weeks +week of Aug 24/m);
+  assert.ok(!all.includes("a trend is not a saving, and it does not show the cause"), "verbose view uses the table, not the compact lines");
 });
 
 test("TUI score card carries the same trend lines; absent block renders nothing", () => {
   const model = buildLearnTuiModel(plan, { report: "/tmp/r.html" });
   assert.deepEqual(model.trend, learnTrendLines(trends));
-  assert.match(learnScoreBody(model), /trend 6w {2}tokens\/session/);
+  assert.match(learnScoreBody(model), /last 6 weeks {2}tokens\/session/);
   const { trends: _omit, ...older } = plan;
   assert.equal(buildLearnTuiModel(older, { report: "/tmp/r.html" }).trend, undefined);
-  assert.ok(!renderLearnPlan(older, { report: "/tmp/r.html" }).includes("trend "));
+  assert.ok(!renderLearnPlan(older, { report: "/tmp/r.html" }).includes("last 6 weeks"));
 });

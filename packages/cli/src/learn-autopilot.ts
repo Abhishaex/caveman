@@ -207,22 +207,22 @@ function sinksOf(value: unknown): ScanSink[] | undefined {
 
 type Fresh = { title: string; tokens_per_turn: number; doctor?: boolean; repo?: string };
 
-// nudgeLine leads with the biggest new token sink; memory & rules findings
+// nudgeLine leads with the biggest new finding; memory-file findings
 // ride along as a count, or lead when they are all that is new.
 export function nudgeLine(fresh: Fresh[]): string {
   const clean = (title: string) => title.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 80);
   const sinks = fresh.filter((item) => !item.doctor);
   const doctor = fresh.filter((item) => item.doctor);
-  const findings = (n: number) => `${n} memory & rules finding${n === 1 ? "" : "s"}`;
+  const findings = (n: number) => `${n} memory-file finding${n === 1 ? "" : "s"}`;
   if (sinks.length === 0) {
     const more = doctor.length > 1 ? ` (+${doctor.length - 1} more)` : "";
     const where = doctor[0]!.repo ? ` (${clean(doctor[0]!.repo)})` : "";
-    return `caveman learn: memory & rules${where} — ${clean(doctor[0]!.title)}${more}. Run \`caveman learn --all\` to review.`;
+    return `caveman learn: memory files${where} — ${clean(doctor[0]!.title)}${more}. Run \`caveman learn --all\` to review.`;
   }
   const top = sinks[0]!;
-  const lead = sinks.length === 1 ? "new token sink" : `${sinks.length} new token sinks, biggest`;
+  const lead = sinks.length === 1 ? "new finding" : `${sinks.length} new findings, biggest`;
   const extra = doctor.length > 0 ? `, plus ${findings(doctor.length)}` : "";
-  return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens/turn, inferred)${extra}. Run \`caveman learn\` to review.`;
+  return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens in every message, estimate)${extra}. Run \`caveman learn\` to review.`;
 }
 
 export const AUTOPILOT_PROXY_TOO_OLD = "proxy too old for autopilot (needs learn capabilities)";
@@ -410,10 +410,10 @@ export function autopilotStatusText(now = Date.now()): string {
   const lines = [
     `learn autopilot: ${enabled.enabled ? "on" : "off"} (${enabled.source === "env" ? "CAVEMAN_LEARN_AUTOPILOT" : enabled.source === "ci" ? "CI/test run" : enabled.source})`,
     `  last scan:      ${ago(state.last_scan_at, now)}${lockHeld() ? " · scan running now" : ""}`,
-    `  next eligible:  ${enabled.enabled ? next : "disabled"}`,
+    `  next scan:      ${enabled.enabled ? next : "disabled"}`,
     `  last error:     ${state.last_error ?? "none"}`,
-    `  last announced: ${announced?.line ? `${announced.line} (${announced.announced_at ?? "?"})` : "nothing yet"}`,
+    `  last shown:     ${announced?.line ? `${announced.line} (${announced.announced_at ?? "?"})` : "nothing yet"}`,
   ];
-  if (pending?.line) lines.push(`  pending:        ${pending.line}`);
+  if (pending?.line) lines.push(`  waiting to show: ${pending.line}`);
   return `${lines.join("\n")}\n`;
 }
