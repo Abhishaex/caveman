@@ -16042,6 +16042,7 @@ type LearnPlan = {
   basis: "inferred";
   sessions_scanned?: number;
   sessions_by_source?: Record<string, number>;
+  window?: { from?: string; to?: string; since?: string };
   cave_score: { score: number; basis: string; scope?: string };
   sinks: LearnSink[];
   retro?: LearnRetro;
@@ -16078,8 +16079,12 @@ type LearnRetro = {
 
 type LearnDiff = { days: number; gone: number; back: number; fresh: number };
 
-const LEARN_EMPTY =
-  "no Claude Code or Codex sessions found in the last 30d — the plan needs a block repeated across ≥3 sessions; run `caveman claude` a few times, then `caveman learn`";
+// learnEmpty names the window the proxy actually scanned (plan.window.since;
+// older proxies omit it and always scanned 30d).
+function learnEmpty(plan: LearnPlan): string {
+  const since = plan.window?.since || "30d";
+  return `no Claude Code, Codex, Gemini CLI, opencode or aider sessions found in the last ${since} — the plan needs a block repeated across ≥3 sessions; run \`caveman claude\` a few times, then \`caveman learn\``;
+}
 const LEARN_DETAILED_NEXT =
   "next:  caveman tools skills install caveman-learn   (review + apply, with consent)  ·  preview one: caveman learn apply <sink_id> --dry-run";
 const LEARN_ALL_FOOTER = [
@@ -16299,7 +16304,7 @@ export function buildLearnTuiModel(
   const trend = learnTrendLines(plan.trends);
   const memory = learnMemoryHealthLine(plan);
   const status = sessions === 0
-    ? LEARN_EMPTY
+    ? learnEmpty(plan)
     : !recurring
       ? `${sessions} sessions scanned · no block repeated across ≥3 sessions yet — keep running \`${invokedAs()} claude\`, then re-run \`${invokedAs()} learn\``
       : undefined;
@@ -16365,7 +16370,7 @@ export function renderLearnPlan(
   const confirmedLines = renderLearnConfirmed(plan.confirmed, markdown);
 
   if (sessions === 0) {
-    lines.push(LEARN_EMPTY);
+    lines.push(learnEmpty(plan));
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
   } else if (!recurring) {
     if (plan.sinks.length > 0) {
@@ -16986,7 +16991,12 @@ async function learn(rest: string[]) {
   if (tui) {
     const learnTui = await import("./learn-tui.js");
     const progress = learnTui.createLearnProgress();
-    progress.start("Reading Claude Code and Codex sessions");
+    const flag = (name: string) => {
+      const at = forwarded.findIndex((arg) => arg === name || arg.startsWith(`${name}=`));
+      if (at < 0) return undefined;
+      return forwarded[at]!.includes("=") ? forwarded[at]!.split("=")[1] : forwarded[at + 1];
+    };
+    progress.start(`Reading ${flag("--sources") ?? "local agent"} sessions from the last ${flag("--since") ?? "30d"}`);
     try {
       const scanRaw = await proxyExecLearnAsync(
         ["learn", "scan", "--write-report", "--write-report-token", reportToken, ...forwarded],

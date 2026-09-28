@@ -23,11 +23,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -678,7 +680,11 @@ func runLearn(logger *slog.Logger, args []string) {
 
 	switch sub {
 	case "scan":
-		fmt.Fprintln(os.Stderr, "scanning local sessions (last 30d)…")
+		scope := "local sessions"
+		if picked := strings.Trim(strings.Join(sources, ","), ","); picked != "" {
+			scope = picked + " sessions"
+		}
+		fmt.Fprintf(os.Stderr, "scanning %s (last %s)…\n", scope, since)
 		// --retro is opt-in: without it the scan runs exactly as before. With it,
 		// both passes are independently bounded so a cold base scan cannot consume
 		// the child deadline before retro returns partial measured coverage.
@@ -688,8 +694,16 @@ func runLearn(logger *slog.Logger, args []string) {
 			fatalJSON(logger, err)
 		}
 		store.AttachLearnTrendHistory(&plan, home, time.Now())
-		fmt.Fprintf(os.Stderr, "claude-code %d · codex %d · scoring…\n",
-			plan.SessionsBySource["claude"], plan.SessionsBySource["codex"])
+		counts := []string{}
+		for _, source := range slices.Sorted(maps.Keys(plan.SessionsBySource)) {
+			if n := plan.SessionsBySource[source]; n > 0 {
+				counts = append(counts, fmt.Sprintf("%s %d", source, n))
+			}
+		}
+		if len(counts) == 0 {
+			counts = append(counts, "no sessions")
+		}
+		fmt.Fprintf(os.Stderr, "%s · scoring…\n", strings.Join(counts, " · "))
 		if hasArg(args, "--write-report") {
 			out := argFlag(args, "--out", store.DefaultLearnReportPath(home))
 			if err := spend.WriteLearnHTML(plan, out); err != nil {

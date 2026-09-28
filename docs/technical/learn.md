@@ -453,6 +453,3 @@ the marginal cost is zero.
   `deterministic_remeasure` and `interrupted_time_series` rungs.
   `controlled_holdout` results appear in `experiment report`, not in
   `savings`, and no command yet produces `counterfactual_replay` rows.
-- **Hard-coded messages.** The proxy's progress line says "last 30d" and the
-  empty-state message names only Claude Code and Codex regardless of
-  `--since` and `--sources`.
