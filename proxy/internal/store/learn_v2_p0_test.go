@@ -347,11 +347,12 @@ func containsCaveat(caveats []string, needle string) bool {
 }
 
 func TestSessionContextPastFallbackWindowInfersLargerWindow(t *testing.T) {
+	// An id the catalog cannot know, so the 200k fallback applies.
 	scan := func(contexts ...int) behaviorScan {
 		t.Helper()
 		var lines strings.Builder
 		for i, ctx := range contexts {
-			fmt.Fprintf(&lines, `{"type":"assistant","message":{"id":"m%d","model":"claude-opus-5-5","usage":{"input_tokens":%d}}}`+"\n", i, ctx)
+			fmt.Fprintf(&lines, `{"type":"assistant","message":{"id":"m%d","model":"claude-uncataloged-9","usage":{"input_tokens":%d}}}`+"\n", i, ctx)
 		}
 		path := filepath.Join(t.TempDir(), "s.jsonl")
 		if err := os.WriteFile(path, []byte(lines.String()), 0o600); err != nil {
@@ -370,8 +371,8 @@ func TestSessionContextPastFallbackWindowInfersLargerWindow(t *testing.T) {
 	claudeDir := t.TempDir()
 	t.Setenv("CAVEMAN_CLAUDE_ROOT", claudeDir)
 	writeClaudeProject(t, claudeDir, "repo", "a.jsonl", []string{
-		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:00:00Z","message":{"id":"a","model":"claude-opus-5-5","usage":{"input_tokens":150000}}}`,
-		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:01:00Z","message":{"id":"b","model":"claude-opus-5-5","usage":{"input_tokens":300000}}}`,
+		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:00:00Z","message":{"id":"a","model":"claude-uncataloged-9","usage":{"input_tokens":150000}}}`,
+		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:01:00Z","message":{"id":"b","model":"claude-uncataloged-9","usage":{"input_tokens":300000}}}`,
 	})
 	metrics := scanLearnSessionMetrics(map[string]bool{"claude": true}, time.Time{}, "", false)
 	for _, m := range metrics {
@@ -403,5 +404,53 @@ func TestInferredWindowOnCatalogModelIsNotAFallback(t *testing.T) {
 	scanClaudeTranscriptBehavior(path, "repo/s.jsonl", time.Time{}, nil, &beh, newRecurringMiner())
 	if !beh.InferredWindowSources["claude"] || beh.FallbackWindowSources["claude"] || beh.DumbzoneTurns != 0 || beh.DumbzoneExcessTokens != 0 {
 		t.Fatalf("catalog session past its 200k window = %+v", beh)
+	}
+}
+
+func TestProjectClaudeMDRateCountsOnlyThatProjectsClaudeSessions(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "proj")
+	cfg := configScan{ClaudeMDProject: &ConfigSnapshot{Path: filepath.Join(project, "CLAUDE.md"), Lines: 400, Tokens: 3000}}
+	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{
+		{Repo: project, Source: "claude", Turns: 10},
+		{Repo: filepath.Join(project, "sub"), Source: "claude", Turns: 5},
+		{Repo: project, Source: "codex", Turns: 20},                // Codex reads AGENTS.md, not CLAUDE.md
+		{Repo: project + "-worktree", Source: "claude", Turns: 30}, // sibling dir, own CLAUDE.md
+		{Repo: filepath.Join(root, "other"), Source: "claude", Turns: 35},
+	}}
+	projectSink := func(beh behaviorScan) Sink {
+		for _, sink := range configSinksWithBehavior(cfg, beh, 50) {
+			if sink.SinkID == "claude_md_weight:project" {
+				return sink
+			}
+		}
+		t.Fatal("missing claude_md_weight:project")
+		return Sink{}
+	}
+	// 15 of 100 turns at 50 turns/day -> 7.5 turns/day x 3000 tokens.
+	sink := projectSink(beh)
+	if sink.TokensPerDayRate != 22500 || sink.Evidence["turns_per_day_basis"] != "claude_sessions_under_project" {
+		t.Fatalf("rate = %d basis %v, want 22500 claude_sessions_under_project", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"])
+	}
+	beh.SessionMetrics = beh.SessionMetrics[3:]
+	if sink := projectSink(beh); sink.TokensPerDayRate != 0 {
+		t.Fatalf("project with no sessions of its own charged %d tokens/day", sink.TokensPerDayRate)
+	}
+	beh.SessionMetrics = nil
+	if sink := projectSink(beh); sink.TokensPerDayRate != 150000 || sink.Evidence["turns_per_day_basis"] != "all_scanned_sessions" {
+		t.Fatalf("fallback rate = %d basis %v", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"])
+	}
+}
+
+func TestClaudeProviderModelSplitsOnlyKnownVendorPrefixes(t *testing.T) {
+	for in, want := range map[string][2]string{
+		"claude-opus-5-5":         {"anthropic", "claude-opus-5-5"},
+		"google/gemini-3.7-flash": {"gemini", "gemini-3.7-flash"},
+		"openai/gpt-6-sol":        {"openai", "gpt-6-sol"},
+		"arn:aws:bedrock:us-east-1:1:application-inference-profile/x": {"anthropic", "arn:aws:bedrock:us-east-1:1:application-inference-profile/x"},
+	} {
+		if p, m := claudeProviderModel(in); p != want[0] || m != want[1] {
+			t.Errorf("claudeProviderModel(%q) = %s/%s, want %s/%s", in, p, m, want[0], want[1])
+		}
 	}
 }

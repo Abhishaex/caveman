@@ -286,12 +286,15 @@ var costModels = []struct {
 	label  string
 	rate   float64
 }{
-	{"claude", "Fable 5", 10.0},
-	{"claude", "Opus 5", 5.0},
-	{"claude", "Sonnet 5", 3.0},
-	{"gpt56", "Sol", 5.0},
-	{"gpt56", "Terra", 2.0},
-	{"gpt56", "Luna", 0.20},
+	// Input list prices per MTok, checked 2026-09-28 against
+	// platform.claude.com/docs/en/about-claude/pricing and
+	// developers.openai.com/api/docs/pricing.
+	{"claude", "Fable 5.1", 10.0},
+	{"claude", "Opus 5.5", 4.0},
+	{"claude", "Sonnet 5", 2.0},
+	{"gpt56", "Astra", 10.0},
+	{"gpt56", "Sol", 2.0},
+	{"gpt56", "Luna", 0.10},
 }
 
 func fmtUSD(usd float64) string {
@@ -356,7 +359,7 @@ func costFamilies(sinks []Sink) []costFamily {
 		}
 	}
 	claude := costFamily{ID: "claude", Name: "Claude"}
-	gpt := costFamily{ID: "gpt56", Name: "GPT-5.6"}
+	gpt := costFamily{ID: "gpt56", Name: "GPT-6"}
 	for _, m := range costModels {
 		rate := cachedRate(m.rate)
 		row := costRow{
