@@ -102,7 +102,7 @@ test("SessionEnd spawns a detached scan, then throttles", { skip: !posix }, asyn
     const out = await hook(fastHook, "claude", { hook_event_name: "SessionEnd", session_id: "s1" }, box.env);
     assert.equal(out.code, 0, out.stderr);
     assert.ok(await waitFor(() => existsSync(join(box.runtime, "learn-autopilot.json")) && box.state().last_scan_at), "detached scan never finished");
-    assert.deepEqual(box.calls(), ["learn scan --write-report"]);
+    assert.deepEqual(box.calls(), ["learn scan --write-report --no-remember"]);
     assert.ok(!existsSync(join(box.runtime, "learn-autopilot.lock")), "lock released");
     // First scan is a baseline: nothing announced, big eligible sink recorded as seen.
     assert.deepEqual(box.state().seen, ["claude_md_weight:project"]);

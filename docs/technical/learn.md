@@ -43,7 +43,7 @@ All paths are under `$CAVEMAN_HOME` (default `~/.caveman`) unless noted.
 | When | What is written |
 |---|---|
 | Any command that builds a plan (default run, `scan`, `report`, `apply`, `applied`, `simulate`, `savings`, `export`, `experiment report`) | `caveman.db` tables `config_snapshots`, `config_snapshot_history`, `learn_sinks` |
-| `caveman learn` and `learn scan` | Also: one cavemem memory per `reducible` sink (title plus suggestion) in `mem/mem.db`, and a matching row in the `learnings` table |
+| `caveman learn` and `learn scan` (not with `--no-remember`, which autopilot always passes) | Also: one cavemem memory per `reducible` sink (title plus suggestion) in `mem/mem.db`, and a matching row in the `learnings` table |
 | `caveman learn`, `learn scan --write-report`, `learn report`, autopilot | `reports/caveman-learn.html`, `reports/caveman-learn.json`, `reports/caveman-learn.YYYY-MM-DD.json` (last 8 dated snapshots kept) |
 | `learn apply <sink>` without `--dry-run` | `candidates/learn-<sink>.json` |
 | `learn applied` | row in `applied_fixes` |
@@ -144,7 +144,8 @@ Autopilot keeps the report fresh without you running learn.
 |---|---|
 | Trigger | The Caveman native hook's `SessionEnd` event (Claude Code, Codex, Gemini CLI; opencode and Hermes bridges forward it). The hook spawns a detached, idle-priority `caveman learn autopilot run` and returns immediately. |
 | Throttle | At most one scan per 6 hours. `CAVEMAN_LEARN_AUTOPILOT_HOURS` changes it. One scan at a time (lock file; stale after timeout + 60 s). |
-| Scan | `learn scan --write-report` with the default window and sources, killed at `CAVE_LEARN_TIMEOUT`. |
+| Scan | `learn scan --write-report --no-remember` with the default window and sources, killed at `CAVE_LEARN_TIMEOUT`. |
+| Writes | The report files, the `caveman.db` plan tables every scan updates, and its own `runtime/learn-autopilot*` state. Never cavemem memories or `learnings` rows: `--no-remember` skips them, because sink titles carry changing counts and each unattended run would add a near-duplicate. |
 | Enable precedence | `CAVEMAN_LEARN_AUTOPILOT` env (`0`, `false`, `off`, `no` disable; anything else enables) → `learnAutopilot` in `~/.caveman-cloud/config.json` → off when `CI` is set (not `0`/`false`) or under `NODE_TEST_CONTEXT` → on. |
 | Opt out | `caveman learn autopilot off`, or `CAVEMAN_LEARN_AUTOPILOT=0`. |
 | State | `$CAVEMAN_HOME/runtime/learn-autopilot*.json`. Writes are temp-file + rename and refuse symlinked parents. |

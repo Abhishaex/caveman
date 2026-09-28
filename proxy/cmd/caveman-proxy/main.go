@@ -689,7 +689,15 @@ func runLearn(logger *slog.Logger, args []string) {
 		// both passes are independently bounded so a cold base scan cannot consume
 		// the child deadline before retro returns partial measured coverage.
 		retro := learnRetroOptions(args)
-		plan, err := spend.LearnScanFilteredWithRetro(sources, since, retro, repoFilter)
+		var plan store.LearnPlan
+		var err error
+		if hasArg(args, "--no-remember") {
+			// Unattended scans (autopilot) must not grow cavemem: sink titles
+			// embed changing counts, so every run would store a near-duplicate.
+			plan, err = spend.BuildLearnPlanFilteredWithRetro(cwd, sources, since, retro, repoFilter)
+		} else {
+			plan, err = spend.LearnScanFilteredWithRetro(sources, since, retro, repoFilter)
+		}
 		if err != nil {
 			fatalJSON(logger, err)
 		}

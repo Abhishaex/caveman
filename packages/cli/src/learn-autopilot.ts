@@ -223,7 +223,7 @@ export function runAutopilot(proxyBin: string): number {
     if (!due(state)) return 0;
     state.last_attempt_at = new Date().toISOString();
     writeJson(paths.state, state);
-    const result = spawnSync(proxyBin, ["learn", "scan", "--write-report"], {
+    const result = spawnSync(proxyBin, ["learn", "scan", "--write-report", "--no-remember"], {
       encoding: "utf8",
       env: process.env,
       timeout: autopilotTimeoutSeconds() * 1000,

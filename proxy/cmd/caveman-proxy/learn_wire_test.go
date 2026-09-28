@@ -283,3 +283,36 @@ func TestLearnApplyHonorsRepoFilter(t *testing.T) {
 		t.Fatalf("simulate under --repo beta = %+v", sim)
 	}
 }
+
+func TestLearnScanNoRememberSkipsDurableLearnings(t *testing.T) {
+	home, claudeRoot := learnWireEnv(t)
+	var lines []string
+	for i := range 400 {
+		lines = append(lines, fmt.Sprintf("- rule %d: keep this project tidy and well documented at all times", i))
+	}
+	if err := os.WriteFile(filepath.Join(claudeRoot, "CLAUDE.md"), []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	learnings := func() int {
+		t.Helper()
+		db, err := sql.Open("sqlite", filepath.Join(home, "caveman.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer db.Close()
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM learnings WHERE source_kind = 'caveman_learn'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	var plan store.LearnPlan
+	learnJSON(t, &plan, "scan", "--no-remember")
+	if len(plan.Sinks) == 0 || learnings() != 0 {
+		t.Fatalf("--no-remember wrote learnings: sinks=%d learnings=%d", len(plan.Sinks), learnings())
+	}
+	learnJSON(t, &plan, "scan")
+	if learnings() == 0 {
+		t.Fatal("a plain scan should still record learnings")
+	}
+}
