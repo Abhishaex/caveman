@@ -135,6 +135,9 @@ func TestExperimentReportGradesAHoldout(t *testing.T) {
 	if !strings.Contains(strings.Join(report.Attributed.Confounders, " "), "not randomized") {
 		t.Fatalf("the rung's own confounder must be attached: %v", report.Attributed.Confounders)
 	}
+	if report.Attributed.Provenance != provenanceNotApplicable || strings.Contains(strings.Join(report.Attributed.Confounders, " "), "fingerprinting") {
+		t.Fatalf("an experiment has no applied edit to fingerprint: %+v", report.Attributed)
+	}
 }
 
 // TestExperimentRefusesUnderpoweredVerdict proves an under-powered holdout

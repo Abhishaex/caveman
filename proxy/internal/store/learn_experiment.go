@@ -275,7 +275,7 @@ func buildExperimentReport(experiment Experiment, sessions []sessionOutcome, spe
 		// than the verdict softening: an under-powered holdout is not a weak
 		// holdout, it is not a holdout.
 		method = attrNone
-		report.Attributed = buildAttribution(method, provenanceUnfingerprnt, "")
+		report.Attributed = buildAttribution(method, provenanceNotApplicable, "")
 		report.Caveats = append(report.Caveats, fmt.Sprintf(
 			"Each arm needs at least %d sessions before a verdict. Keep switching arms and re-run.", experimentMinArmSessions))
 		return report
@@ -301,7 +301,7 @@ func buildExperimentReport(experiment Experiment, sessions []sessionOutcome, spe
 			}
 		}
 	}
-	report.Attributed = buildAttribution(method, provenanceUnfingerprnt, "")
+	report.Attributed = buildAttribution(method, provenanceNotApplicable, "")
 	report.Caveats = append(report.Caveats,
 		"Arms are compared on median tokens per session over your own history. Sessions are assigned by their start time, so a session that straddles a switch counts once, in the arm it began in.",
 		"This is the strongest local evidence available and it is still inferred: the arms ran at different times against different work.",
