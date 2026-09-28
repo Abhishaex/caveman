@@ -293,6 +293,14 @@ func proseLines(lines []string) []bool {
 
 func fileFingerprint(path string) string { return hashText(path)[:8] }
 
+// pick returns one or many by count, for titles like "1 rule loads".
+func pick(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 func memorySink(kind, scope, title, class string, tokensPerTurn int, turnsPerDay float64, evidence map[string]any, suggestion string) Sink {
 	s := Sink{
 		SinkID: "memory_health:" + kind + ":" + scope, Title: title, Class: class, Basis: learnBasis,
@@ -318,7 +326,8 @@ func memoryTruncationSink(f *instructionFile) []Sink {
 	}
 	notLoaded, basis := configTokenCount(strings.Join(f.Lines[f.Loaded:], "\n"))
 	return []Sink{memorySink("memory_truncation", "memory",
-		fmt.Sprintf("MEMORY.md is %d lines; %d lines (%d index entries) past the session-start cutoff never load", len(f.Lines), past, entries),
+		fmt.Sprintf("MEMORY.md is %s; %s (%d %s) past the session-start cutoff never %s",
+			plural(len(f.Lines), "line"), plural(past, "line"), entries, pick(entries, "index entry", "index entries"), pick(past, "loads", "load")),
 		classBehavioral, 0, 0, map[string]any{
 			"path": f.Path, "lines": len(f.Lines), "loaded_lines": f.Loaded, "lines_past_cutoff": past,
 			"entries_past_cutoff": entries, "tokens_not_loaded": notLoaded, "token_basis": basis,
@@ -378,7 +387,7 @@ func memoryOrphansSink(f *instructionFile, memDir string, turnsPerDay float64) [
 	}
 	_, basis := configTokenCount("")
 	return []Sink{memorySink("memory_orphans", "memory",
-		fmt.Sprintf("Auto memory: %d files MEMORY.md never links, %d index links to missing files", len(orphans), len(dangling)),
+		fmt.Sprintf("Auto memory: %s MEMORY.md never links, %s to missing files", plural(len(orphans), "file"), plural(len(dangling), "index link")),
 		class, danglingTokens, turnsPerDay, map[string]any{
 			"path": f.Path, "memory_dir": memDir, "orphan_files": capStrings(orphans), "orphan_count": len(orphans),
 			"dangling_links": capStrings(dangling), "dangling_count": len(dangling),
@@ -419,7 +428,7 @@ func brokenImportsSink(f *instructionFile) []Sink {
 		return nil
 	}
 	return []Sink{memorySink("broken_imports", fileFingerprint(f.Path),
-		fmt.Sprintf("%s (%s) has %d @imports that resolve to missing files", filepath.Base(f.Path), f.Scope, len(broken)),
+		fmt.Sprintf("%s (%s) has %s", filepath.Base(f.Path), f.Scope, pick(len(broken), "1 @import that resolves to a missing file", fmt.Sprintf("%d @imports that resolve to missing files", len(broken)))),
 		classBehavioral, 0, 0, map[string]any{"path": f.Path, "imports": capStrings(broken), "count": len(broken)},
 		"These @imports load nothing, so whatever they were meant to pull in is silently absent. Consider fixing each path or removing the import.")}
 }
@@ -474,7 +483,7 @@ func staleReferencesSink(f *instructionFile) []Sink {
 		return nil
 	}
 	return []Sink{memorySink("stale_references", fileFingerprint(f.Path),
-		fmt.Sprintf("%s names %d repo paths that no longer exist", filepath.Base(f.Path), len(stale)),
+		fmt.Sprintf("%s names %s", filepath.Base(f.Path), pick(len(stale), "1 repo path that no longer exists", fmt.Sprintf("%d repo paths that no longer exist", len(stale)))),
 		classBehavioral, 0, 0, map[string]any{"path": f.Path, "repo_root": root, "references": capStrings(stale), "count": len(stale)},
 		"Instructions that point at moved or deleted files can send the agent looking in the wrong place. Consider updating or dropping these references.")}
 }
@@ -518,7 +527,7 @@ func buriedRulesSink(f *instructionFile) []Sink {
 		sample = sample[:memoryHealthSampleCap]
 	}
 	return []Sink{memorySink("buried_rules", fileFingerprint(f.Path),
-		fmt.Sprintf("%s: %d emphatic rules sit in the middle of a %d-line file", filepath.Base(f.Path), len(lines), n),
+		fmt.Sprintf("%s: %s in the middle of a %d-line file", filepath.Base(f.Path), pick(len(lines), "1 emphatic rule sits", fmt.Sprintf("%d emphatic rules sit", len(lines))), n),
 		classBehavioral, 0, 0, map[string]any{"path": f.Path, "lines": n, "count": len(lines), "rule_lines": sample,
 			"band": "30-70% of the file", "method": "heuristic"},
 		"Heuristic: long-context models tend to weight the start and end of a file more; consider moving these up.")}
@@ -593,7 +602,7 @@ func duplicateRulesSink(files []instructionFile, agent string, turnsPerDay float
 	}
 	_, basis := configTokenCount("")
 	return []Sink{memorySink("duplicate_rules", agent,
-		fmt.Sprintf("%d rules load more than once per %s session (~%d duplicate tokens/turn)", total, agent, tokens),
+		fmt.Sprintf("%s more than once per %s session (~%d duplicate tokens/turn)", pick(total, "1 rule loads", fmt.Sprintf("%d rules load", total)), agent, tokens),
 		classReducible, tokens, turnsPerDay, map[string]any{
 			"agent": agent, "duplicates": dups, "duplicate_count": total, "token_basis": basis,
 			"fix_kind": "dedupe_rules",

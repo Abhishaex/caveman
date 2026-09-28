@@ -186,6 +186,9 @@ func TestDuplicateRules(t *testing.T) {
 	if s.Evidence["duplicate_count"] != 1 {
 		t.Fatalf("only the test-suite rule should duplicate: %+v", s.Evidence)
 	}
+	if !strings.HasPrefix(s.Title, "1 rule loads more than once per claude session") {
+		t.Fatalf("singular title = %q", s.Title)
+	}
 	perCopy, _ := configTokenCount("- " + rule)
 	if s.Class != classReducible || s.TokensPerTurn != int64(2*perCopy) || s.TokensPerDayRate != int64(20*perCopy) {
 		t.Fatalf("sink = %+v (per copy %d, 3 copies)", s, perCopy)
@@ -325,5 +328,21 @@ func TestLearnReportListsEveryMemoryHealthFinding(t *testing.T) {
 	}
 	if strings.Contains(render(sinks[:25]), "Memory &amp; rules health") {
 		t.Error("section must be omitted without memory findings")
+	}
+}
+
+func TestMemoryHealthTitlesUseSingular(t *testing.T) {
+	_, repo := memoryHealthEnv(t)
+	mustWrite(t, filepath.Join(repo, "CLAUDE.md"), "@./missing.md\nEdit `src/gone.ts` now.\n")
+	mustMkdir(t, filepath.Join(repo, "src"))
+	sinks := memoryHealthSinks(repo, 0)
+	for prefix, want := range map[string]string{
+		"memory_health:broken_imports:":   "CLAUDE.md (project) has 1 @import that resolves to a missing file",
+		"memory_health:stale_references:": "CLAUDE.md names 1 repo path that no longer exists",
+	} {
+		got := memorySinksWithPrefix(sinks, prefix)
+		if len(got) != 1 || got[0].Title != want {
+			t.Errorf("%s title = %+v, want %q", prefix, got, want)
+		}
 	}
 }
