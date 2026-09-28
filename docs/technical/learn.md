@@ -162,11 +162,15 @@ caveman learn: new token sink — <title> (~2.4k tokens/turn). Run `caveman lear
 
 Rules:
 
-- Only sinks of class `reducible` or `recurring_context` with
-  `tokens_per_turn` ≥ 2000 qualify. This includes `memory_health:duplicate_rules`
-  and `memory_health:memory_orphans` when they are `reducible` and above the
-  threshold. `broken_imports` and `memory_truncation` are `behavioral` with no
-  per-turn tokens, so they never trigger it.
+- Sinks of class `reducible` or `recurring_context` with `tokens_per_turn`
+  ≥ 2000 qualify. This includes `memory_health:duplicate_rules` and
+  `memory_health:memory_orphans` when they are `reducible` and above the
+  threshold.
+- `memory_health:broken_imports` and `memory_health:memory_truncation` qualify
+  with no token threshold: they break what the agent loads. When they are all
+  that is new they lead the line (`caveman learn: memory & rules — <title>.
+  Run \`caveman learn --all\` to review.`); otherwise they are appended as
+  ", plus N memory & rules findings".
 - Only sinks not seen by an earlier autopilot scan. The first scan records a
   baseline and announces nothing.
 - While a nudge is still unclaimed, newer sinks stay unseen and are announced
