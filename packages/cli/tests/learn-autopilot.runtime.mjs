@@ -287,6 +287,8 @@ test("SessionStart nudge path is not skipped by the fast hook and refuses a syml
     assert.equal(held.code, 0, held.stderr);
     assert.ok(held.ms < 3000, `SessionStart took ${held.ms}ms with stdin held open`);
     assert.equal(JSON.parse(held.stdout).systemMessage, "caveman learn: hi");
+    assert.ok(!existsSync(join(box.runtime, "learn-autopilot-nudge.inflight.json")), "relayed nudge confirmed by the fast hook");
+    assert.equal(JSON.parse(readFileSync(join(box.runtime, "learn-autopilot-announced.json"), "utf8")).line, "caveman learn: hi");
   } finally { box.cleanup(); }
 });
 
@@ -321,4 +323,25 @@ test("nudge line counts doctor findings behind the biggest token sink", async ()
     { title: "Big sink", tokens_per_turn: 5000 },
     { title: "Broken import", tokens_per_turn: 0, doctor: true },
   ]), "caveman learn: new token sink — Big sink (~5.0k tokens/turn), plus 1 memory & rules finding. Run `caveman learn` to review.");
+});
+
+test("an unconfirmed in-flight nudge re-shows once after 10 minutes, never twice", { skip: !posix }, async () => {
+  const box = sandbox();
+  try {
+    mkdirSync(box.runtime, { recursive: true });
+    const inflight = join(box.runtime, "learn-autopilot-nudge.inflight.json");
+    const park = (minutesAgo, extra = {}) => writeFileSync(inflight, JSON.stringify({
+      line: "caveman learn: lost line", sink_ids: ["a"], created_at: "x", claimed_at: new Date(Date.now() - minutesAgo * 60_000).toISOString(), ...extra,
+    }));
+    park(1);
+    const fresh = await hook(cli, "claude", sessionStart("startup"), box.env);
+    assert.equal(JSON.parse(fresh.stdout).systemMessage, undefined, "a just-claimed nudge belongs to another session");
+    park(11);
+    const again = await hook(cli, "claude", sessionStart("startup"), box.env);
+    assert.equal(JSON.parse(again.stdout).systemMessage, "caveman learn: lost line");
+    assert.ok(!existsSync(inflight), "re-shown line confirmed");
+    park(11, { reshown: true });
+    const third = await hook(cli, "claude", sessionStart("startup"), box.env);
+    assert.equal(JSON.parse(third.stdout).systemMessage, undefined, "one re-show max");
+  } finally { box.cleanup(); }
 });

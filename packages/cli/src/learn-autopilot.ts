@@ -21,13 +21,16 @@ export type AutopilotState = {
   seen?: string[];
 };
 
-type Nudge = { line: string; sink_ids: string[]; created_at: string; announced_at?: string };
+type Nudge = { line: string; sink_ids: string[]; created_at: string; announced_at?: string; claimed_at?: string; reshown?: boolean };
 
 const ANNOUNCE_CLASSES = new Set(["reducible", "recurring_context"]);
 const ANNOUNCE_MIN_TOKENS_PER_TURN = 2000;
 // Doctor findings that break what the agent loads qualify with no token rate.
 const ANNOUNCE_DOCTOR_PREFIXES = ["memory_health:broken_imports:", "memory_health:memory_truncation:"];
 const SEEN_CAP = 500;
+// A claimed nudge whose output never reached the host (killed hook, delegate
+// timeout) is shown once more after this long. One re-show, never more.
+const NUDGE_RESHOW_MS = 10 * 60_000;
 
 function caveHome(): string {
   return process.env.CAVEMAN_HOME ?? join(homedir(), ".caveman");
@@ -43,6 +46,7 @@ export function autopilotPaths() {
     state: join(dir, "learn-autopilot.json"),
     lock: join(dir, "learn-autopilot.lock"),
     nudge: join(dir, "learn-autopilot-nudge.json"),
+    inflight: join(dir, "learn-autopilot-nudge.inflight.json"),
     announced: join(dir, "learn-autopilot-announced.json"),
     // Autopilot's own reports home: its scans run with whatever cwd and env the
     // last SessionEnd hook had, so they never overwrite the canonical report,
@@ -293,23 +297,44 @@ export function runAutopilot(proxyBin: string): number {
 }
 
 // Hook side (SessionStart). Claims the pending nudge with one atomic rename,
-// so concurrent session starts announce it exactly once. Only fresh sessions
-// (startup / clear) announce; resume, compact and fork never do.
+// so concurrent session starts announce it once. The claim parks it in-flight;
+// confirmLearnNudge marks it announced only after the line was written to the
+// host. An in-flight nudge left unconfirmed for NUDGE_RESHOW_MS is re-shown
+// once. Only fresh sessions (startup / clear) announce; resume, compact and
+// fork never do.
 export function claimLearnNudge(source: string | undefined): string | undefined {
   if (source !== "startup" && source !== "clear") return undefined;
   try {
     if (!autopilotEnabled().enabled) return undefined;
     const paths = autopilotPaths();
-    const claimed = `${paths.nudge}.${process.pid}.claim`;
-    renameSync(paths.nudge, claimed);
-    const nudge = readJson<Nudge>(claimed);
+    const claimed = `${paths.inflight}.${process.pid}.claim`;
+    let nudge: Nudge | undefined;
+    try {
+      renameSync(paths.nudge, claimed);
+      nudge = readJson<Nudge>(claimed);
+    } catch {
+      const stale = readJson<Nudge>(paths.inflight);
+      if (!stale || stale.reshown || !(Date.now() - Date.parse(stale.claimed_at ?? "") >= NUDGE_RESHOW_MS)) return undefined;
+      renameSync(paths.inflight, claimed);
+      nudge = { ...stale, reshown: true };
+    }
     try { unlinkSync(claimed); } catch { /* best effort */ }
     if (!nudge || typeof nudge.line !== "string" || !nudge.line) return undefined;
-    try { writeJson(paths.announced, { ...nudge, announced_at: new Date().toISOString() }); } catch { /* status only */ }
+    writeJson(paths.inflight, { ...nudge, claimed_at: new Date().toISOString() });
     return nudge.line.replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, 300);
   } catch {
     return undefined;
   }
+}
+
+// confirmLearnNudge runs once the claimed line has reached the host's stdout.
+export function confirmLearnNudge(): void {
+  try {
+    const paths = autopilotPaths();
+    const nudge = readJson<Nudge>(paths.inflight);
+    unlinkSync(paths.inflight);
+    if (nudge) writeJson(paths.announced, { ...nudge, announced_at: new Date().toISOString() });
+  } catch { /* status only */ }
 }
 
 function ago(iso: string | undefined, now: number): string {

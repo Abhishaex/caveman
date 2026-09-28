@@ -49,7 +49,7 @@ All paths are under `$CAVEMAN_HOME` (default `~/.caveman`) unless noted.
 | `learn applied` | row in `applied_fixes` |
 | `learn experiment start/arm/stop` | rows in `experiments`, `experiment_arms` |
 | `learn export` | `reports/caveman-learn-digest.json` (or `--out <path>`) |
-| Autopilot | `runtime/learn-autopilot.json`, `.lock`, `-nudge.json`, `-announced.json`, and its own report, snapshots and trend history under `runtime/learn-autopilot/reports/` |
+| Autopilot | `runtime/learn-autopilot.json`, `.lock`, `-nudge.json`, `-nudge.inflight.json`, `-announced.json`, and its own report, snapshots and trend history under `runtime/learn-autopilot/reports/` |
 | `learn autopilot on/off` | key `learnAutopilot` in `~/.caveman-cloud/config.json` |
 | `learn implement` | the skill file, only if missing: `./.claude/skills/caveman-learn/SKILL.md` (Claude Code) or `$CODEX_HOME/skills/caveman-learn/SKILL.md` (Codex) |
 
@@ -178,7 +178,12 @@ Rules:
 - Shown only on Claude Code, Codex and Gemini CLI `SessionStart` with source
   `startup` or `clear`; never on `resume`, `compact` or `fork`. It is
   delivered as a user-visible `systemMessage`, not model context.
-- Claimed with one atomic rename, so concurrent sessions announce it once.
+- Claimed with one atomic rename, so concurrent sessions announce it once. The
+  claim parks it in `runtime/learn-autopilot-nudge.inflight.json`; it counts as
+  announced only after the line is written to the host (the fast hook confirms
+  after relaying the delegated output). If that never happens, for example the
+  delegate hit its 3 s timeout, it is shown once more after 10 minutes, never
+  twice.
 - Suppressed when autopilot is disabled.
 
 ## Setup Score

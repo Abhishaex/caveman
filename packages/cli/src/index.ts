@@ -36,7 +36,7 @@ import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, verif
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { PROFILES, type AgentProfile } from "./agents.generated.js";
-import { autopilotStatusText, claimLearnNudge, maybeSpawnAutopilot, runAutopilot } from "./learn-autopilot.js";
+import { autopilotStatusText, claimLearnNudge, confirmLearnNudge, maybeSpawnAutopilot, runAutopilot } from "./learn-autopilot.js";
 import {
   BINARY_RELEASE,
   BINARY_RELEASE_BASE_DEFAULT,
@@ -14542,7 +14542,11 @@ async function nativeHook(argv: string[]) {
     process.stdout.write(JSON.stringify({
       ...(learnNudge ? { systemMessage: learnNudge } : {}),
       ...(stableContext ? { hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: stableContext } } : {}),
-    }));
+    }), () => {
+      // Under the fast hook the parent confirms after relaying our stdout: it
+      // may still drop the output on its own timeout.
+      if (learnNudge && !process.env.CAVEMAN_LEARN_NUDGE_RELAYED) confirmLearnNudge();
+    });
   } else if (normalizedEvent === "PostCompact" && agent !== "hermes" && compactContext) {
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: compactContext },
