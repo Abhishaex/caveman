@@ -183,7 +183,7 @@ The full 30+ agent matrix, dry runs, flags, and verification live in [INSTALL.md
 
 **Big rock.** The proxy, right after `npm install -g @caveman-ai/cli`:
 
-1. **Find out where your tokens go.** `caveman learn` reads months of agent history already on your disk, locally, and ranks your token sinks worst-first with a one-line fix behind each. Do this before anything else. It is the most useful five minutes in this README.
+1. **Find out where your tokens go.** `caveman learn` reads months of agent history already on your disk, locally, and ranks your token sinks worst-first with a one-line fix behind each. Do this before anything else. It is the most useful five minutes in this README. After step 3 it keeps watching by itself and speaks up only when something new appears.
 2. **Let it fix them.** `caveman learn implement` hands each fix to Claude Code or Codex one diff at a time, applied only on your yes, and reverts anything that did not lower tokens per turn.
 3. **Wrap your agent.** `caveman claude` (or `codex`, `gemini`, `aider`, `opencode`, `pi`, …) puts the proxy in front of it. Logs, test output, JSON, and diffs get shrunk before the provider sees them. Originals stay on disk, and the agent can pull any of them back.
 4. **Shrink the noisy stuff.** `caveman shrink -- pnpm test` compresses command output. `caveman browse <url>` gives the agent a compressed view of a web page instead of a 15,000-token accessibility dump.
@@ -411,7 +411,7 @@ Any MCP host gets the same powers through five tools: `caveman_compress`, `cavem
 
 ### Where your tokens go
 
-Months of your agent history already sit on your disk. `caveman learn` reads it, locally, read-only, no account, and ranks your token sinks worst-first with a one-line fix behind each.
+Months of your agent history already sit on your disk. `caveman learn` reads it, locally, read-only, no account, and ranks your token sinks worst-first with a one-line fix behind each. Then it keep watching, so you not have to remember.
 
 ```bash
 caveman learn             # Claude Code + Codex + Gemini CLI + opencode; aider via CAVEMAN_AIDER_ROOT
@@ -422,7 +422,29 @@ caveman learn implement   # hand the fixes to Claude Code or Codex, one diff at 
   <img src="docs/assets/learn-report.png" alt="Caveman Learn report: TLDR summary and savings cards on the left; ranked token sinks with an expanded fix and a session context depth histogram on the right" width="900">
 </p>
 
-`implement` re-measures after every change and reverts anything that didn't lower tokens per turn. Caveman never makes your agent dumber to make it cheaper.
+**It run itself.** Once caveman is on your agent (`caveman claude`, `caveman codex`, …), learn re-scans quietly after a session ends. Low priority, at most every 6 hours, never makes the session wait. When something new and heavy shows up, your next session opens with one line, one time:
+
+```
+caveman learn: new token sink — Project CLAUDE.md is 423 lines (~9699 tokens) loaded every turn (~9.7k tokens/turn). Run `caveman learn` to review.
+```
+
+Nothing new, nothing said. `caveman learn autopilot off` if you rather run it by hand.
+
+**It check your memory files.** Claude Code loads only the first 200 lines (or 25KB) of `MEMORY.md`. Everything past that, your agent never sees, and nothing tells you. Learn tells you. It also catches `@imports` pointing at files that are gone, the same rule pasted into two files your agent loads (you pay for it twice, every turn), file paths in `CLAUDE.md` that no longer exist, and memory notes the index forgot to link.
+
+**It say if you getting better.** Week over week, from your own sessions, first run included. Real output from the maintainer's machine, bad news left in:
+
+```
+trend 6w  tokens/session  ▄▂▃▁█┊▃  +187% vs prior 4w · worse  (n=928)
+          peak context    ▁▂▄▄█┊▃  +15pp vs prior 4w · worse  (n=928)
+          dumbzone turns  ▁▂▄▄▅┊█  +5.6pp vs prior 4w · worse  (n=928)
+```
+
+Medians, not averages. Weeks under 5 sessions say "not enough data" instead of guessing. A trend is not a saving, and learn never pretends it is.
+
+**It prove the fix, or undo it.** `implement` re-measures after every change and reverts anything that didn't lower tokens per turn. Some fixes can't be re-counted, like a new skill that only pays off when it gets used. For those, `caveman learn experiment` runs it on for a stretch and off for a stretch over your own sessions, and gives no verdict before 5 sessions each way. Caveman never makes your agent dumber to make it cheaper.
+
+Every verb, every check, every number it will and won't show: [docs/technical/learn.md](./docs/technical/learn.md).
 
 ### More verbs
 
