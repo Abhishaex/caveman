@@ -80,29 +80,40 @@ func TestBuildLearnTrendsBucketsAndCompares(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC) // Wednesday, 2026-W40
 	since := now.Add(-30 * 24 * time.Hour)               // 2026-08-31 12:00, Monday of W36
 	var sessions []trendSession
-	for _, monday := range []string{"2026-08-31", "2026-09-07", "2026-09-14", "2026-09-21"} {
+	for _, monday := range []string{"2026-08-31", "2026-09-07", "2026-09-14"} {
 		d, _ := time.Parse("2006-01-02", monday)
 		sessions = append(sessions, trendSessionsAt(d.Add(13*time.Hour), 5, 1000)...)
 	}
-	sessions = append(sessions, trendSessionsAt(time.Date(2026, 9, 28, 1, 0, 0, 0, time.UTC), 5, 800)...)
+	sessions = append(sessions, trendSessionsAt(time.Date(2026, 9, 21, 13, 0, 0, 0, time.UTC), 5, 800)...)
+	// The week in progress has enough sessions and a wild value; it is plotted
+	// but must never become the compared week.
+	sessions = append(sessions, trendSessionsAt(time.Date(2026, 9, 28, 1, 0, 0, 0, time.UTC), 6, 5000)...)
 	sessions = append(sessions, trendSession{Source: "codex", Turns: 3, Tokens: 10}) // undated
 
 	trends := buildLearnTrends(sessions, since, now)
 	if trends == nil {
 		t.Fatal("expected trends")
 	}
-	if len(trends.Weeks) != 5 || trends.Weeks[0].Week != "2026-W36" || trends.CurrentWeek != "2026-W40" {
+	if len(trends.Weeks) != 5 || trends.Weeks[0].Week != "2026-W36" || trends.CurrentWeek != "2026-W39" {
 		t.Fatalf("weeks = %+v current %s", trends.Weeks, trends.CurrentWeek)
 	}
-	if !trends.Weeks[0].Partial || trends.Weeks[1].Partial || !trends.Weeks[4].Partial {
-		t.Fatalf("partial flags wrong: %+v", trends.Weeks)
+	if !trends.Weeks[0].Partial || trends.Weeks[1].Partial || !trends.Weeks[4].Partial ||
+		trends.Weeks[0].InProgress || trends.Weeks[3].InProgress || !trends.Weeks[4].InProgress {
+		t.Fatalf("partial/in-progress flags wrong: %+v", trends.Weeks)
 	}
-	if trends.UndatedSessions != 1 || trends.PriorWeeks != 4 {
+	if trends.UndatedSessions != 1 || trends.PriorWeeks != 3 {
 		t.Fatalf("undated=%d prior=%d", trends.UndatedSessions, trends.PriorWeeks)
 	}
 	m := trendMetric(t, trends, "tokens_per_session")
-	if *m.Current != 800 || *m.Prior != 1000 || *m.DeltaPct != -20 || m.Direction != "improved" || m.CurrentSessions != 5 || m.PriorSessions != 20 {
+	if *m.Current != 800 || *m.Prior != 1000 || *m.DeltaPct != -20 || m.Direction != "improved" || m.CurrentSessions != 5 || m.PriorSessions != 15 {
 		t.Fatalf("tokens metric = %+v", m)
+	}
+	if last := m.Series[len(m.Series)-1]; last == nil || *last != 5000 {
+		t.Fatalf("in-progress week must still be plotted: %+v", m.Series)
+	}
+	// A window inside the week in progress holds no complete week.
+	if buildLearnTrends(sessions, time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC), now) != nil {
+		t.Fatal("no complete week must omit trends")
 	}
 	if c := trendMetric(t, trends, "cache_read_pct"); *c.Current != 90 || c.Direction != "flat" || c.Better != "higher" {
 		t.Fatalf("cache metric = %+v", c)
@@ -121,7 +132,7 @@ func TestBuildLearnTrendsInsufficientData(t *testing.T) {
 	sessions = append(sessions, trendSessionsAt(time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC), 2, 1000)...)
 
 	trends := buildLearnTrends(sessions, since, now)
-	// The in-progress week has 3 sessions, so the last complete week is compared.
+	// The last complete week is compared, never the one in progress.
 	if trends.CurrentWeek != "2026-W39" {
 		t.Fatalf("current week %s", trends.CurrentWeek)
 	}
@@ -227,8 +238,8 @@ func TestLearnReportRendersTrendsSection(t *testing.T) {
 	}
 	section := html[trendsAt:sinksAt]
 	for _, want := range []string{
-		"A trend is not a saving", "tokens/session", "1,300", "prior 1,100 · &#43;18% · n=6",
-		"2026-W36* n=2", "insufficient data</title>", "<polyline", "worse",
+		"A trend is not a saving", "tokens/session", "1,200", "prior 1,000 · &#43;20% · n=6",
+		"2026-W36* n=2", "2026-W40 (in progress) n=6", "(in progress) · 1,300", "insufficient data</title>", "<polyline", "worse",
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("trends section missing %q", want)

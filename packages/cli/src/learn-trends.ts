@@ -26,7 +26,7 @@ export type LearnTrends = {
   min_sessions: number;
   dead_band_pct: number;
   undated_sessions?: number;
-  weeks: { week: string; start: string; partial?: boolean; sessions: number; turns: number; insufficient_data?: boolean }[];
+  weeks: { week: string; start: string; partial?: boolean; in_progress?: boolean; sessions: number; turns: number; insufficient_data?: boolean }[];
   metrics: LearnTrendMetric[];
   score?: { source: string; omitted: string; history_source?: string; history?: { date: string; score: number }[] };
   movers?: {
@@ -51,6 +51,13 @@ export function learnSparkline(series: (number | null)[]): string {
   return series
     .map((value) => typeof value !== "number" ? "·" : BARS[span === 0 ? 0 : Math.round(((value - lo) / span) * (BARS.length - 1))])
     .join("");
+}
+
+// trendSpark sets the week in progress apart ("▃▅▆┊█"): it is plotted but
+// never the compared week.
+function trendSpark(trends: LearnTrends, metric: LearnTrendMetric): string {
+  const spark = learnSparkline(metric.series);
+  return trends.weeks.at(-1)?.in_progress && spark.length > 1 ? `${spark.slice(0, -1)}┊${spark.slice(-1)}` : spark;
 }
 
 function compactNumber(value: number): string {
@@ -94,7 +101,7 @@ export function learnTrendLines(trends: LearnTrends | undefined): string[] {
   const head = `trend ${trends.weeks.length}w`;
   const width = Math.max(...metrics.map((metric) => metric.label.length));
   return metrics.map((metric, index) =>
-    `${index === 0 ? head : " ".repeat(head.length)}  ${metric.label.padEnd(width)}  ${learnSparkline(metric.series)}  ${trendChange(metric, trends.prior_weeks)}  (n=${metric.current_sessions})`,
+    `${index === 0 ? head : " ".repeat(head.length)}  ${metric.label.padEnd(width)}  ${trendSpark(trends, metric)}  ${trendChange(metric, trends.prior_weeks)}  (n=${metric.current_sessions})`,
   );
 }
 
@@ -105,7 +112,7 @@ export function learnTrendTable(trends: LearnTrends | undefined, markdown: boole
   const header = ["metric", `${trends.weeks.length}w`, trends.current_week, `prior ${trends.prior_weeks}w`, "change", "n"];
   const rows = trends.metrics.map((metric) => [
     metric.label,
-    learnSparkline(metric.series),
+    trendSpark(trends, metric),
     trendValue(metric.current, metric.unit),
     trendValue(metric.prior, metric.unit),
     metric.direction === "insufficient_data"
@@ -120,9 +127,11 @@ export function learnTrendTable(trends: LearnTrends | undefined, markdown: boole
     const widths = header.map((_, col) => Math.max(...[header, ...rows].map((row) => row[col]!.length)));
     for (const row of [header, ...rows]) lines.push(row.map((cell, col) => cell.padEnd(widths[col]!)).join("  ").trimEnd());
   }
-  const weeks = trends.weeks.map((week) => `${week.week}${week.partial ? "*" : ""} n=${week.sessions}`).join(" · ");
+  const weeks = trends.weeks
+    .map((week) => `${week.week}${week.in_progress ? " (in progress)" : week.partial ? "*" : ""} n=${week.sessions}`)
+    .join(" · ");
   lines.push(
-    `weeks (UTC ISO, * partial): ${weeks}`,
+    `weeks (UTC ISO, * partial, ┊ in progress, never compared): ${weeks}`,
     `medians across sessions, shares pooled across turns; under ${trends.min_sessions} sessions = insufficient data; under ${trends.dead_band_pct}% change = flat`,
     trends.note,
   );

@@ -72,9 +72,9 @@ func (c *sessionEventConsumer) trendSession() (trendSession, bool) {
 type LearnTrends struct {
 	Basis  string `json:"basis"`
 	Bucket string `json:"bucket"` // "iso_week_utc"
-	// CurrentWeek is the bucket compared against the prior weeks: the week in
-	// progress, or the last complete week when the one in progress has fewer
-	// than MinSessions sessions.
+	// CurrentWeek is the bucket compared against the prior weeks: always the
+	// last complete week. The week in progress is shown as a trailing point
+	// (InProgress) but never drives the headline change.
 	CurrentWeek     string             `json:"current_week"`
 	PriorWeeks      int                `json:"prior_weeks"`
 	MinSessions     int                `json:"min_sessions"`
@@ -91,7 +91,9 @@ type LearnTrendWeek struct {
 	Week  string `json:"week"`  // e.g. 2026-W39
 	Start string `json:"start"` // Monday, UTC, YYYY-MM-DD
 	// Partial marks a week cut by the window start or still in progress.
-	Partial          bool           `json:"partial,omitempty"`
+	Partial bool `json:"partial,omitempty"`
+	// InProgress marks the trailing week that has not ended yet.
+	InProgress       bool           `json:"in_progress,omitempty"`
 	Sessions         int            `json:"sessions"`
 	Turns            int            `json:"turns"`
 	SessionsBySource map[string]int `json:"sessions_by_source,omitempty"`
@@ -268,7 +270,8 @@ func trendDirection(cur, prior float64, better string, absBand float64) (*float6
 }
 
 // buildLearnTrends buckets sessions by the UTC ISO week they started in. Nil
-// when no dated session falls inside the bucketed weeks.
+// when no dated session falls inside the bucketed weeks, or when the window
+// holds no complete week to compare.
 func buildLearnTrends(sessions []trendSession, since, now time.Time) *LearnTrends {
 	end := isoWeekStart(now)
 	first := end.AddDate(0, 0, -7*(trendWeeksMax-1))
@@ -278,6 +281,9 @@ func buildLearnTrends(sessions []trendSession, since, now time.Time) *LearnTrend
 		}
 	}
 	n := int(end.Sub(first).Hours()/(24*7)) + 1
+	if n < 2 {
+		return nil
+	}
 	buckets := make([][]trendSession, n)
 	undated, dated := 0, 0
 	for _, s := range sessions {
@@ -295,10 +301,7 @@ func buildLearnTrends(sessions []trendSession, since, now time.Time) *LearnTrend
 	if dated == 0 {
 		return nil
 	}
-	current := n - 1
-	if len(buckets[current]) < trendMinSessions && current > 0 {
-		current--
-	}
+	current := n - 2 // the last bucket is the week in progress
 	priorFrom := max(0, current-trendPriorWeeks)
 	var prior []trendSession
 	for _, b := range buckets[priorFrom:current] {
@@ -321,6 +324,7 @@ func buildLearnTrends(sessions []trendSession, since, now time.Time) *LearnTrend
 		w := LearnTrendWeek{
 			Week: isoWeekLabel(start), Start: start.Format("2006-01-02"), Sessions: len(b),
 			Partial:          i == n-1 || (!since.IsZero() && start.Before(since)),
+			InProgress:       i == n-1,
 			InsufficientData: len(b) < trendMinSessions,
 		}
 		for _, s := range b {
@@ -492,7 +496,8 @@ func trendFmt(v *float64, unit string) string {
 
 // trendSparkSVG draws one metric's weekly series: a polyline broken at null
 // buckets, one dot per measured week, the compared week emphasized, and a
-// dashed line at the prior-weeks value. Sized by viewBox, so it scales.
+// dashed line at the prior-weeks value. The week in progress hangs off a
+// dotted connector as a hollow dot. Sized by viewBox, so it scales.
 func trendSparkSVG(series []*float64, current int, prior *float64, weeks []LearnTrendWeek, unit string, w float64) template.HTML {
 	const h, pad = 48.0, 5.0
 	lo, hi := math.Inf(1), math.Inf(-1)
@@ -529,24 +534,30 @@ func trendSparkSVG(series []*float64, current int, prior *float64, weeks []Learn
 		pts = nil
 	}
 	for i, v := range series {
-		if v == nil {
+		if v == nil || weeks[i].InProgress {
 			flush()
 			continue
 		}
 		pts = append(pts, fmt.Sprintf("%.1f,%.1f", x(i), y(*v)))
 	}
 	flush()
+	if i := len(series) - 1; i > 0 && weeks[i].InProgress && series[i] != nil && series[i-1] != nil {
+		fmt.Fprintf(&b, `<line x1="%.1f" y1="%.1f" x2="%.1f" y2="%.1f" stroke="#b4b3ae" stroke-width="1.5" stroke-dasharray="2 2"/>`, x(i-1), y(*series[i-1]), x(i), y(*series[i]))
+	}
 	for i, v := range series {
 		label := weeks[i].Week
 		if v == nil {
 			fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="2" fill="none" stroke="#cfcdc7"><title>%s · n=%d · insufficient data</title></circle>`, x(i), h-pad, template.HTMLEscapeString(label), weeks[i].Sessions)
 			continue
 		}
-		r, fill := 2.5, "#9b9a97"
+		r, fill, stroke := 2.5, "#9b9a97", "none"
 		if i == current {
 			r, fill = 3.5, "#37352f"
 		}
-		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s"><title>%s · %s · n=%d</title></circle>`, x(i), y(*v), r, fill, template.HTMLEscapeString(label), template.HTMLEscapeString(trendFmt(v, unit)), weeks[i].Sessions)
+		if weeks[i].InProgress {
+			fill, stroke, label = "#fff", "#b4b3ae", label+" (in progress)"
+		}
+		fmt.Fprintf(&b, `<circle cx="%.1f" cy="%.1f" r="%.1f" fill="%s" stroke="%s"><title>%s · %s · n=%d</title></circle>`, x(i), y(*v), r, fill, stroke, template.HTMLEscapeString(label), template.HTMLEscapeString(trendFmt(v, unit)), weeks[i].Sessions)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String()) // every interpolated string above is escaped or numeric
@@ -630,8 +641,8 @@ var trendsTemplate = template.Must(template.New("trends").Funcs(template.FuncMap
   </div>
 {{end}}
 </div>
-<div class="tweeks">{{range .Weeks}}<span{{if .InsufficientData}} class="ins"{{end}} title="{{.Start}}{{if .Partial}} · partial week{{end}}">{{.Week}}{{if .Partial}}*{{end}} n={{.Sessions}}</span>{{end}}</div>
-<p class="fine">* partial week (window edge or in progress). "score lost to habits" recomputes only the dumbzone and subagent components per week; {{.Score.Omitted}}.{{if .UndatedSessions}} {{.UndatedSessions}} sessions had no timestamps and are not bucketed.{{end}}</p>
+<div class="tweeks">{{range .Weeks}}<span{{if or .InsufficientData .InProgress}} class="ins"{{end}} title="{{.Start}}{{if .InProgress}} · in progress{{else if .Partial}} · partial week{{end}}">{{.Week}}{{if .InProgress}} (in progress){{else if .Partial}}*{{end}} n={{.Sessions}}</span>{{end}}</div>
+<p class="fine">* partial week (cut by the window start). The week in progress is drawn hollow and never drives the comparison. "score lost to habits" recomputes only the dumbzone and subagent components per week; {{.Score.Omitted}}.{{if .UndatedSessions}} {{.UndatedSessions}} sessions had no timestamps and are not bucketed.{{end}}</p>
 {{with .Score}}{{if .History}}{{$svg := scoreSVG .History}}{{if $svg}}
 <div class="dcard" style="margin-top:16px">
   <div class="kicker">Cave Score across saved reports · source: {{.HistorySource}}</div>

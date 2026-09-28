@@ -22,13 +22,14 @@ const trends = {
   prior_weeks: 4,
   min_sessions: 5,
   dead_band_pct: 10,
-  weeks: ["W35", "W36", "W37", "W38", "W39"].map((week, index) => ({
-    week: `2026-${week}`, start: "2026-08-24", partial: index === 0, sessions: index === 0 ? 3 : 150, turns: 1000,
+  weeks: ["W35", "W36", "W37", "W38", "W39", "W40"].map((week, index) => ({
+    week: `2026-${week}`, start: "2026-08-24", partial: index === 0 || index === 5, in_progress: index === 5,
+    sessions: index === 0 ? 3 : 150, turns: 1000,
   })),
   metrics: [
-    metric("tokens_per_session", "tokens/session", "tokens", [null, 1000, 1200, 1100, 900], 900, 1100, -18.2, "improved"),
-    metric("peak_context_pct", "peak context", "pct", [null, 20, 22, 21, 21.5], 21.5, 21, 2.4, "flat"),
-    metric("cache_read_pct", "cache reads", "pct", [null, 95, 96, 97, 90], 90, 96, -6.3, "worse", "higher"),
+    metric("tokens_per_session", "tokens/session", "tokens", [null, 1000, 1200, 1100, 900, 1200], 900, 1100, -18.2, "improved"),
+    metric("peak_context_pct", "peak context", "pct", [null, 20, 22, 21, 21.5, 22], 21.5, 21, 2.4, "flat"),
+    metric("cache_read_pct", "cache reads", "pct", [null, 95, 96, 97, 90, 90], 90, 96, -6.3, "worse", "higher"),
   ],
   score: { source: "sessions_recomputed", omitted: "x", history_source: "snapshots", history: [{ date: "2026-09-01", score: 80 }, { date: "2026-09-28", score: 77 }] },
   movers: { since: "2026-09-19", days: 8, grew: [{ sink_id: "a", title: "Config grew", status: "changed", delta_tokens_per_turn: 8459 }] },
@@ -54,31 +55,31 @@ test("sparkline scales to the series and marks insufficient weeks", () => {
 test("plain learn shows a compact trend section after the score", () => {
   const out = renderLearnPlan(plan, { report: "/tmp/r.html" });
   const lines = out.split("\n");
-  const at = lines.findIndex((line) => line.startsWith("trend 5w"));
+  const at = lines.findIndex((line) => line.startsWith("trend 6w"));
   assert.ok(at > 0 && at < 5, out);
-  assert.equal(lines[at], "trend 5w  tokens/session  ·▃█▆▁  -18% vs prior 4w · improved  (n=212)");
-  assert.equal(lines[at + 1], "          peak context    ·▁█▅▆  +0.5pp vs prior 4w · flat  (n=212)");
+  assert.equal(lines[at], "trend 6w  tokens/session  ·▃█▆▁┊█  -18% vs prior 4w · improved  (n=212)");
+  assert.equal(lines[at + 1], "          peak context    ·▁█▅▆┊█  +0.5pp vs prior 4w · flat  (n=212)");
   assert.ok(!out.includes("cache reads"), "compact view keeps to 2-4 lines");
   assert.ok(!/\$/.test(lines.slice(at, at + 3).join("\n")));
 });
 
 test("--md and --all render a trends table with n and honesty notes", () => {
   const md = renderLearnPlan(plan, { report: "/tmp/r.html", markdown: true });
-  assert.match(md, /### Trends\n\| metric \| 5w \| 2026-W39 \| prior 4w \| change \| n \|/);
-  assert.match(md, /\| cache reads \| ·▆▇█▁ \| 90% \| 96% \| -6pp worse \| 212 vs 640 \|/);
-  assert.match(md, /- weeks \(UTC ISO, \* partial\): 2026-W35\* n=3/);
+  assert.match(md, /### Trends\n\| metric \| 6w \| 2026-W39 \| prior 4w \| change \| n \|/);
+  assert.match(md, /\| cache reads \| ·▆▇█▁┊▁ \| 90% \| 96% \| -6pp worse \| 212 vs 640 \|/);
+  assert.match(md, /- weeks \(UTC ISO, \* partial, ┊ in progress, never compared\): 2026-W35\* n=3 .* 2026-W40 \(in progress\) n=150/);
   assert.match(md, /A trend is not a saving/);
   assert.match(md, /score history \(snapshots\): 09-01 80 → 09-28 77/);
   assert.match(md, /grew since 2026-09-19 \(8d\): Config grew \(\+8,459\/turn, changed\)/);
   const all = renderLearnPlan(plan, { report: "/tmp/r.html", verbose: true, all: true });
-  assert.match(all, /^trends\nmetric +5w +2026-W39/m);
-  assert.ok(!all.includes("trend 5w  "), "verbose view uses the table, not the compact lines");
+  assert.match(all, /^trends\nmetric +6w +2026-W39/m);
+  assert.ok(!all.includes("trend 6w  "), "verbose view uses the table, not the compact lines");
 });
 
 test("TUI score card carries the same trend lines; absent block renders nothing", () => {
   const model = buildLearnTuiModel(plan, { report: "/tmp/r.html" });
   assert.deepEqual(model.trend, learnTrendLines(trends));
-  assert.match(learnScoreBody(model), /trend 5w {2}tokens\/session/);
+  assert.match(learnScoreBody(model), /trend 6w {2}tokens\/session/);
   const { trends: _omit, ...older } = plan;
   assert.equal(buildLearnTuiModel(older, { report: "/tmp/r.html" }).trend, undefined);
   assert.ok(!renderLearnPlan(older, { report: "/tmp/r.html" }).includes("trend "));
