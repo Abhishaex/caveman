@@ -233,6 +233,7 @@ confirmed outcomes, per-repository observations, and advanced command hints.
 completed, re-measured fix in Caveman's outcome store. A recommendation remains
 an inferred opportunity until stronger evidence exists. Aider scanning remains
 opt-in through `CAVEMAN_AIDER_ROOT` because its history is repository-local.
+Full reference: [caveman learn](./learn.md).
 
 ## Connected namespace
 

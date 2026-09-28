@@ -51,6 +51,8 @@ this repository. Hosted-service implementation details are outside its scope.
 
 - [SDKs and packages](./technical/sdks-and-packages.md): TypeScript, Python,
   Agent SDK, schemas, graders, React kit, Mastra, and provider catalog
+- [caveman learn](./technical/learn.md): local setup profiler, Setup Score,
+  sinks, autopilot, and consent-gated fixes
 - [Accounting and evidence](./technical/accounting-and-evidence.md): `inferred`,
   provider-reported, benchmark, and `verified` labels
 - [Security and privacy](./technical/security-and-privacy.md): data flows and
