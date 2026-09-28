@@ -16,16 +16,17 @@ func TestCostChartBlendsEachModelsCatalogCachePrice(t *testing.T) {
 		}
 	}
 	for label, want := range map[string]string{
-		"Fable 5.1": "$1.23 per 1M input", // 1.225
-		"Opus 5.5":  "$0.58 per 1M input", // 0.4 + 0.9*0.20
-		"Sonnet 5":  "$0.38 per 1M input", // 0.2 + 0.9*0.20
+		"Fable 5.1":    "$1.23 per 1M input",  // 1.225
+		"Opus 5.5":     "$0.58 per 1M input",  // 0.4 + 0.9*0.20
+		"Sonnet 5":     "$0.38 per 1M input",  // 0.2 + 0.9*0.20
+		"GPT-5.6 Luna": "$0.038 per 1M input", // 0.1*0.20 + 0.9*0.02
 	} {
 		if rates[label] != want {
 			t.Errorf("%s rate = %q, want %q (all rates: %v)", label, rates[label], want, rates)
 		}
 	}
-	if _, drawn := rates["Luna"]; drawn {
-		t.Error("gpt-6-luna has no catalog row; it must not be drawn at a guessed price")
+	if len(rates) != len(costModels) {
+		t.Errorf("drew %d of %d chart models; every chart model needs a catalog row: %v", len(rates), len(costModels), rates)
 	}
 }
 

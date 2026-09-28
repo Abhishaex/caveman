@@ -289,9 +289,9 @@ var costModels = []struct {
 	{"claude", "Fable 5.1", "anthropic", "claude-fable-5-1"},
 	{"claude", "Opus 5.5", "anthropic", "claude-opus-5-5"},
 	{"claude", "Sonnet 5", "anthropic", "claude-sonnet-5"},
-	{"gpt56", "Astra", "openai", "gpt-6-astra"},
-	{"gpt56", "Sol", "openai", "gpt-6-sol"},
-	{"gpt56", "Luna", "openai", "gpt-6-luna"},
+	{"gpt56", "GPT-6 Astra", "openai", "gpt-6-astra"},
+	{"gpt56", "GPT-6 Sol", "openai", "gpt-6-sol"},
+	{"gpt56", "GPT-5.6 Luna", "openai", "gpt-5.6-luna"},
 }
 
 func fmtUSD(usd float64) string {
@@ -367,7 +367,7 @@ func costFamilies(sinks []Sink) []costFamily {
 		return nil
 	}
 	claude := costFamily{ID: "claude", Name: "Claude"}
-	gpt := costFamily{ID: "gpt56", Name: "GPT-6"}
+	gpt := costFamily{ID: "gpt56", Name: "GPT"}
 	for _, m := range models {
 		row := costRow{
 			Label: m.label,
