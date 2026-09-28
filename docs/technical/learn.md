@@ -428,7 +428,8 @@ Other subcommands print their own schemas: `caveman.learn.savings.v1`,
 
 `spend` is what the scanned window cost at published rates. It is a floor
 when `unpriced` is non-empty, it is not an invoice, and on a subscription plan
-the marginal cost is zero.
+the marginal cost is zero. The compact plain view folds several unpriced models
+into one line; `--all`, `--md`, JSON and the HTML report list each model.
 
 ## Limits and known gaps
 

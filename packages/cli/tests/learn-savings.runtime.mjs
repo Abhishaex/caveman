@@ -65,6 +65,27 @@ test("an unpriced model is disclosed so the total reads as a floor", () => {
   assert.match(out, /total is a floor/);
 });
 
+test("several unpriced models collapse to one compact line; --all lists each", () => {
+  const plan = {
+    ...basePlan,
+    spend: {
+      basis: "provider_counted_x_published_rate",
+      currency: "USD",
+      usd: 12,
+      unpriced: [
+        { provider: "anthropic", model: "claude-imaginary-9", tokens: 6_000_000, reason: "no catalog row" },
+        { provider: "openai", model: "gpt-imaginary", tokens: 4_000_000, reason: "no catalog row" },
+      ],
+    },
+  };
+  const compact = renderLearnPlan(plan).split("\n").filter((line) => line.startsWith("unpriced"));
+  assert.equal(compact.length, 1, compact.join("\n"));
+  assert.match(compact[0], /^unpriced {2}2 models · 10M tokens excluded — total is a floor \(\S+ learn --all lists them\)$/);
+  const all = renderLearnPlan(plan, { verbose: true, all: true });
+  assert.match(all, /claude-imaginary-9/);
+  assert.match(all, /gpt-imaginary/);
+});
+
 test("a plan without spend renders exactly as before", () => {
   const out = renderLearnPlan(basePlan);
   assert.doesNotMatch(out, /window cost/);

@@ -16334,7 +16334,7 @@ export function buildLearnTuiModel(
 // what a million input tokens ACTUALLY cost after the user's own cache mix.
 // The multiplier is the one number that decides whether every other finding in
 // the report is expensive or trivial, so it earns a line above the moves.
-function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean): string[] {
+function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean, full = true): string[] {
   if (!spend) return [];
   const lines: string[] = [];
   const currency = spend.currency || "USD";
@@ -16352,8 +16352,15 @@ function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean)
   if (components.length > 0 && spend.usd > 0) {
     lines.push(components.map((component) => `${component.key.replace("_", " ")} ${Math.round(component.share_pct ?? 0)}%`).join("  ·  "));
   }
-  for (const row of spend.unpriced ?? []) {
-    lines.push(`unpriced  ${row.provider}/${row.model}  ${humanTokens(row.tokens)} tokens excluded — total is a floor`);
+  const unpriced = spend.unpriced ?? [];
+  if (!full && unpriced.length > 1) {
+    // Compact view: one line; --all, --md, JSON and HTML keep every model.
+    const tokens = unpriced.reduce((sum, row) => sum + row.tokens, 0);
+    lines.push(`unpriced  ${unpriced.length} models · ${humanTokens(tokens)} tokens excluded — total is a floor (${invokedAs()} learn --all lists them)`);
+  } else {
+    for (const row of unpriced) {
+      lines.push(`unpriced  ${row.provider}/${row.model}  ${humanTokens(row.tokens)} tokens excluded — total is a floor`);
+    }
   }
   if (lines.length > 0) {
     lines.push("subscription plans have no marginal cost; the figure is then the API-equivalent value of the tokens");
@@ -16402,7 +16409,7 @@ export function renderLearnPlan(
     const diffText = learnDiffText(options.diff);
     if (diffText) lines.push(diffText);
     lines.push(...(verbose ? [] : learnTrendLines(plan.trends)));
-    const spendLines = renderLearnSpendLines(plan.spend, markdown);
+    const spendLines = renderLearnSpendLines(plan.spend, markdown, verbose);
     if (spendLines.length > 0) lines.push("", ...spendLines);
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
     if (verbose) {
