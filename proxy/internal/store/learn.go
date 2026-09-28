@@ -836,7 +836,7 @@ func caveScore(cfg configScan, beh behaviorScan, deadTokens, recurPerTurn int) C
 		cDead.Measured = true
 		deadRatio := float64(deadTokens) / float64(tax)
 		cDead.Penalty = capped(wDeadLoad*deadRatio, capDeadLoad)
-		cDead.Detail = fmt.Sprintf("%s of the %s setup tokens are skills you never used", commaInt(int64(deadTokens)), commaInt(int64(tax)))
+		cDead.Detail = fmt.Sprintf("%s of the %s setup tokens are skills with no use seen", commaInt(int64(deadTokens)), commaInt(int64(tax)))
 	} else {
 		cDead.Detail = "not measured (needs skills and session history)"
 	}

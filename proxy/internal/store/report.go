@@ -854,6 +854,7 @@ summary .num{font-variant-numeric:tabular-nums;color:#787774;font-size:14px;whit
 .fine{font-size:12px;color:#9b9a97;margin:10px 0 0}
 .dcard details{border-bottom:none;margin-top:12px}
 details.raw{border-bottom:none}
+details.raw:not([open]) .caret{transform:none}
 details.raw summary{padding:2px 0;font-size:12px;color:#9b9a97}
 .dcard summary{padding:6px 0;color:#787774;font-size:13px}
 @media(max-width:560px){.dstats{flex-wrap:wrap;gap:20px}.split{grid-template-columns:1fr}.panel{padding-right:0}.panel+.panel{border-left:none;border-top:1px solid #ededec;padding:20px 0 0;margin-top:20px}}
