@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -51,6 +52,7 @@ const (
 // behaviorScan is the at-the-time picture extracted from real session transcripts.
 type behaviorScan struct {
 	Turns                  int
+	TurnsBySource          map[string]int // every counted turn by source, repo or not
 	DumbzoneTurns          int
 	DumbzoneExcessTokens   int64
 	Contexts               []int
@@ -511,7 +513,8 @@ func configSinksWithBehavior(cfg configScan, beh behaviorScan, turnsPerDay float
 // reads AGENTS.md, and a project-scoped file loads only in sessions whose cwd is
 // at or under its directory. Multiplying by every scanned session's turns
 // charged a file for traffic that never loaded it. Without per-session metrics
-// it falls back to the all-session rate and says so.
+// it falls back to the all-session rate and says so; a project file no scanned
+// session ran under gets basis "no_matching_sessions" rather than a silent 0.
 func configTurnsPerDay(scope, kind, path string, beh behaviorScan, turnsPerDay float64) (float64, string) {
 	var source string
 	switch kind {
@@ -520,28 +523,56 @@ func configTurnsPerDay(scope, kind, path string, beh behaviorScan, turnsPerDay f
 	case "agents_md":
 		source = "codex"
 	}
-	if source == "" || beh.Turns == 0 || len(beh.SessionMetrics) == 0 {
+	if source == "" || beh.Turns == 0 {
 		return turnsPerDay, "all_scanned_sessions"
 	}
-	dir := filepath.Dir(path)
+	if scope != "project" {
+		// TurnsBySource counts every turn, including sessions with no repo,
+		// which SessionMetrics drops; both sides of the ratio share one basis.
+		if beh.TurnsBySource == nil {
+			return turnsPerDay, "all_scanned_sessions"
+		}
+		return turnsPerDay * float64(beh.TurnsBySource[source]) / float64(beh.Turns), source + "_sessions"
+	}
+	if len(beh.SessionMetrics) == 0 {
+		return turnsPerDay, "all_scanned_sessions"
+	}
+	dir := canonicalDir(filepath.Dir(path))
+	seen := map[string]string{}
 	turns := 0
 	for _, m := range beh.SessionMetrics {
 		if m.Source != source {
 			continue
 		}
-		if scope == "project" {
-			rel, err := filepath.Rel(dir, m.Repo)
-			if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-				continue
-			}
+		repo, ok := seen[m.Repo]
+		if !ok {
+			repo = canonicalDir(m.Repo)
+			seen[m.Repo] = repo
+		}
+		rel, err := filepath.Rel(dir, repo)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
 		}
 		turns += m.Turns
 	}
-	basis := source + "_sessions"
-	if scope == "project" {
-		basis += "_under_project"
+	if turns == 0 {
+		return 0, "no_matching_sessions"
 	}
-	return turnsPerDay * float64(turns) / float64(beh.Turns), basis
+	return turnsPerDay * float64(turns) / float64(beh.Turns), source + "_sessions_under_project"
+}
+
+// canonicalDir resolves symlinks so a config path reached through a link
+// ($PWD form, /tmp vs /private/tmp) matches the resolved cwd a transcript
+// records, and case-folds on macOS, whose default filesystem ignores case.
+func canonicalDir(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	path = filepath.Clean(path)
+	if runtime.GOOS == "darwin" {
+		path = strings.ToLower(path)
+	}
+	return path
 }
 
 // scopedClaudeMDSink is claudeMDSink at the turn rate of the sessions that load
@@ -554,6 +585,9 @@ func scopedClaudeMDSink(snap *ConfigSnapshot, scope string, beh behaviorScan, tu
 	sinks := claudeMDSink(snap, scope, rate)
 	for i := range sinks {
 		sinks[i].Evidence["turns_per_day_basis"] = basis
+		if basis == "no_matching_sessions" {
+			sinks[i].Suggestion += " No scanned session was matched to this project, so its tokens a day could not be measured."
+		}
 	}
 	return sinks
 }
@@ -1110,6 +1144,12 @@ func mergeBehaviorScan(dst, src *behaviorScan) {
 		return
 	}
 	dst.Turns += src.Turns
+	if len(src.TurnsBySource) > 0 && dst.TurnsBySource == nil {
+		dst.TurnsBySource = map[string]int{}
+	}
+	for source, n := range src.TurnsBySource {
+		dst.TurnsBySource[source] += n
+	}
 	dst.DumbzoneTurns += src.DumbzoneTurns
 	if sum, ok := checkedNonNegativeSum(dst.DumbzoneExcessTokens, src.DumbzoneExcessTokens); ok {
 		dst.DumbzoneExcessTokens = sum

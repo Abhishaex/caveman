@@ -192,6 +192,10 @@ func (c *sessionEventConsumer) consume(event turnEvent) {
 			CacheCreation: event.CacheCreationInputTokens, Present: event.CacheUsagePresent,
 		})
 		c.behavior.Turns++
+		if c.behavior.TurnsBySource == nil {
+			c.behavior.TurnsBySource = map[string]int{}
+		}
+		c.behavior.TurnsBySource[c.sourceID]++
 		c.behavior.Contexts = append(c.behavior.Contexts, ctx)
 		c.behavior.Spend.observe(event)
 		c.outcome.Turns++

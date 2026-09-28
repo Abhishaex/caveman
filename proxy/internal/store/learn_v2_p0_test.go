@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -433,12 +434,41 @@ func TestProjectClaudeMDRateCountsOnlyThatProjectsClaudeSessions(t *testing.T) {
 		t.Fatalf("rate = %d basis %v, want 22500 claude_sessions_under_project", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"])
 	}
 	beh.SessionMetrics = beh.SessionMetrics[3:]
-	if sink := projectSink(beh); sink.TokensPerDayRate != 0 {
-		t.Fatalf("project with no sessions of its own charged %d tokens/day", sink.TokensPerDayRate)
+	if sink := projectSink(beh); sink.TokensPerDayRate != 0 || sink.Evidence["turns_per_day_basis"] != "no_matching_sessions" ||
+		!strings.Contains(sink.Suggestion, "could not be measured") {
+		t.Fatalf("project with no sessions of its own = %d basis %v suggestion %q", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"], sink.Suggestion)
 	}
 	beh.SessionMetrics = nil
 	if sink := projectSink(beh); sink.TokensPerDayRate != 150000 || sink.Evidence["turns_per_day_basis"] != "all_scanned_sessions" {
 		t.Fatalf("fallback rate = %d basis %v", sink.TokensPerDayRate, sink.Evidence["turns_per_day_basis"])
+	}
+}
+
+func TestProjectConfigRateMatchesSessionsThroughSymlinksAndCase(t *testing.T) {
+	real := filepath.Join(t.TempDir(), "code", "proj")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "code")
+	if err := os.Symlink(filepath.Dir(real), link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The config path arrives in $PWD form, through the link; Claude Code
+	// records the resolved getcwd path.
+	configPath := filepath.Join(link, "proj", "CLAUDE.md")
+	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{{Repo: resolved, Source: "claude", Turns: 20}}}
+	if got, basis := configTurnsPerDay("project", "claude_md", configPath, beh, 50); got != 10 || basis != "claude_sessions_under_project" {
+		t.Fatalf("symlinked config = %v %s, want 10 claude_sessions_under_project", got, basis)
+	}
+	if runtime.GOOS == "darwin" {
+		beh.SessionMetrics[0].Repo = strings.ToUpper(resolved)
+		if got, _ := configTurnsPerDay("project", "claude_md", configPath, beh, 50); got != 10 {
+			t.Fatalf("case-differing repo on darwin = %v, want 10", got)
+		}
 	}
 }
 
@@ -460,8 +490,10 @@ func TestUserClaudeMDAndCodexAgentsRatesCountOnlyTheirOwnSource(t *testing.T) {
 		ClaudeMDUser: &ConfigSnapshot{Scope: "user", Kind: "claude_md", Path: "/home/u/.claude/CLAUDE.md", Lines: 400, Tokens: 3000},
 		CodexAgents:  &ConfigSnapshot{Scope: "user", Kind: "agents_md", Path: "/home/u/.codex/AGENTS.md", Lines: 400, Tokens: 3000},
 	}
-	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{
-		{Repo: "/a", Source: "claude", Turns: 60},
+	// 10 of Claude's 60 turns ran in a session with no repo: SessionMetrics
+	// drops it, but the user-scope file still loaded there.
+	beh := behaviorScan{Turns: 100, TurnsBySource: map[string]int{"claude": 60, "codex": 40}, SessionMetrics: []learnSessionMetric{
+		{Repo: "/a", Source: "claude", Turns: 50},
 		{Repo: "/b", Source: "codex", Turns: 40},
 	}}
 	want := map[string][2]any{
@@ -489,7 +521,7 @@ func TestConfigGrowthChargesEachFileAtItsOwnSessionsRate(t *testing.T) {
 		{Scope: "project", Kind: "claude_md", Path: filepath.Join(project, "CLAUDE.md"), FirstTokens: 1000, LastTokens: 2000, Observations: 2},
 		{Scope: "user", Kind: "agents_md", Path: "/home/u/.codex/AGENTS.md", FirstTokens: 1000, LastTokens: 1500, Observations: 2},
 	}
-	beh := behaviorScan{Turns: 100, SessionMetrics: []learnSessionMetric{
+	beh := behaviorScan{Turns: 100, TurnsBySource: map[string]int{"claude": 60, "codex": 40}, SessionMetrics: []learnSessionMetric{
 		{Repo: project, Source: "claude", Turns: 10},
 		{Repo: "/elsewhere", Source: "claude", Turns: 50},
 		{Repo: "/elsewhere", Source: "codex", Turns: 40},
