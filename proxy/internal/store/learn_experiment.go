@@ -277,7 +277,7 @@ func buildExperimentReport(experiment Experiment, sessions []sessionOutcome, spe
 		method = attrNone
 		report.Attributed = buildAttribution(method, provenanceNotApplicable, "")
 		report.Caveats = append(report.Caveats, fmt.Sprintf(
-			"Each arm needs at least %d sessions before a verdict. Keep switching arms and re-run.", experimentMinArmSessions))
+			"Both the on and the off period need at least %d sessions before there is a result. Keep switching and re-run.", experimentMinArmSessions))
 		return report
 	}
 
@@ -303,12 +303,12 @@ func buildExperimentReport(experiment Experiment, sessions []sessionOutcome, spe
 	}
 	report.Attributed = buildAttribution(method, provenanceNotApplicable, "")
 	report.Caveats = append(report.Caveats,
-		"Arms are compared on median tokens per session over your own history. Sessions are assigned by their start time, so a session that straddles a switch counts once, in the arm it began in.",
-		"This is the strongest local evidence available and it is still inferred: the arms ran at different times against different work.",
+		"The on and off periods are compared on the typical (middle) tokens per session in your own history. Each session belongs to the period it started in, so one that runs across a switch counts once.",
+		"This is the strongest evidence Caveman can get locally, and it is still an estimate: the two periods ran at different times, on different work.",
 	)
 	if on.ErrorTurnsPerTurn > off.ErrorTurnsPerTurn*1.25 {
 		report.Caveats = append(report.Caveats,
-			"The on-arm hit more tool errors per turn than the off-arm. A cheaper session that fails more is not a saving; weigh the verdict against that.")
+			"The on period hit more tool errors per message than the off period. A cheaper session that fails more is not a saving, so weigh the result against that.")
 	}
 	return report
 }

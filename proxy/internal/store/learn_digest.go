@@ -162,8 +162,8 @@ func buildLearnDigest(plan LearnPlan) LearnDigest {
 		"no evidence maps of any kind",
 	}
 	digest.Caveats = []string{
-		"This export is built field by field from named scalars, so evidence added to a sink in future cannot leak into it.",
-		"Every figure is inferred and window-bounded. Uploading it does not make anything verified; only gateway-observed traffic can do that.",
+		"This export is built one named number at a time, so evidence added to findings later cannot leak into it.",
+		"Every number is an estimate for the period scanned. Uploading it does not make anything verified. Only traffic seen by the Caveman gateway can do that.",
 		"Nothing here is sent anywhere by running this command. It writes a file for you to inspect and decide about.",
 	}
 	return digest
@@ -195,6 +195,6 @@ func digestSinkID(sinkID string) string {
 
 // DigestSummaryLine is the one-line human framing the CLI prints next to the path.
 func (d LearnDigest) DigestSummaryLine() string {
-	return fmt.Sprintf("%d findings · %d sessions · cave score %d · nothing sent",
+	return fmt.Sprintf("%d findings · %d sessions · Setup Score %d · nothing sent",
 		len(d.Sinks), d.SessionsScanned, d.CaveScore)
 }
