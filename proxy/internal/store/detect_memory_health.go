@@ -86,18 +86,6 @@ func memoryHealthSinks(cwd string, turnsPerDay float64) []Sink {
 	return sinks
 }
 
-// memoryClaudeRoot mirrors claudeRoot but also honors CLAUDE_CONFIG_DIR, which
-// Claude Code uses to relocate its whole config dir (auto memory included).
-func memoryClaudeRoot() string {
-	if r := os.Getenv("CAVEMAN_CLAUDE_ROOT"); r != "" {
-		return r
-	}
-	if r := os.Getenv("CLAUDE_CONFIG_DIR"); r != "" {
-		return r
-	}
-	return claudeRoot()
-}
-
 // repoTop is the nearest ancestor holding a .git entry (dir or worktree file).
 func repoTop(dir string) string {
 	for d := filepath.Clean(dir); ; d = filepath.Dir(d) {
@@ -133,7 +121,7 @@ func memoryProjectRoot(cwd string) string {
 var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]`)
 
 func autoMemoryDir(cwd string) string {
-	root := memoryClaudeRoot()
+	root := claudeRoot()
 	if root == "" || cwd == "" {
 		return ""
 	}
@@ -202,7 +190,7 @@ func collectInstructionFiles(cwd string) ([]instructionFile, string) {
 		}
 	}
 
-	if croot := memoryClaudeRoot(); croot != "" {
+	if croot := claudeRoot(); croot != "" {
 		add(filepath.Join(croot, "CLAUDE.md"), "user", "claude", false)
 		addRules(filepath.Join(croot, "rules"), "user")
 	}

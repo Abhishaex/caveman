@@ -18,8 +18,8 @@ nothing.
 
 | Agent | Session transcripts | Config and memory files | Root override |
 |---|---|---|---|
-| Claude Code | `~/.claude/projects/**/*.jsonl` | `~/.claude/CLAUDE.md`, `~/.claude/skills/*`, hook count from `~/.claude/settings.json`, plugin count from `~/.claude/plugins/installed_plugins.json`, MCP servers from `~/.claude.json` and `.mcp.json`, every `CLAUDE.md` from the current directory up to `/` | `CAVEMAN_CLAUDE_ROOT` |
-| Codex | `~/.codex/sessions/**/rollout-*.jsonl`, `~/.codex/archived_sessions/` | `~/.codex/AGENTS.md`, `./AGENTS.md` | `CAVEMAN_CODEX_ROOT` |
+| Claude Code | `~/.claude/projects/**/*.jsonl` | `~/.claude/CLAUDE.md`, `~/.claude/skills/*`, hook count from `~/.claude/settings.json`, plugin count from `~/.claude/plugins/installed_plugins.json`, MCP servers from `~/.claude.json` and `.mcp.json`, every `CLAUDE.md` from the current directory up to `/` | `CAVEMAN_CLAUDE_ROOT`, then `CLAUDE_CONFIG_DIR` (global config then at `$CLAUDE_CONFIG_DIR/.claude.json`) |
+| Codex | `~/.codex/sessions/**/rollout-*.jsonl`, `~/.codex/archived_sessions/` | `~/.codex/AGENTS.md`, `./AGENTS.md` | `CAVEMAN_CODEX_ROOT`, then `CODEX_HOME` |
 | Gemini CLI | `~/.gemini/tmp/*/chats/session-*.json` | `~/.gemini/GEMINI.md`, `GEMINI.md` from repo root to cwd | `CAVEMAN_GEMINI_ROOT` |
 | opencode | `~/.local/share/opencode/storage/{session,message,part}` | none | `CAVEMAN_OPENCODE_ROOT` |
 | aider | `.aider.chat.history.md` files under the root | none | `CAVEMAN_AIDER_ROOT` (required; off without it) |
@@ -28,8 +28,7 @@ The memory and rules doctor also reads `.claude/CLAUDE.md`, `CLAUDE.local.md`,
 `.claude/rules/*.md` and `~/.claude/rules/*.md` (path-scoped rules with a
 `paths:` frontmatter are skipped because they load on demand), and Claude Code
 auto memory at `<claude root>/projects/<repo-key>/memory/MEMORY.md` plus its
-topic files. For auto memory only, `CLAUDE_CONFIG_DIR` and
-`CLAUDE_CODE_PROJECT_DIR_NAME` are honored.
+topic files, honoring `CLAUDE_CODE_PROJECT_DIR_NAME`.
 
 Two other inputs: the `session_outcomes` finding reads commit timestamps with
 `git` in up to 12 repositories (3 s per call, budgeted overall), and the
@@ -428,10 +427,6 @@ the marginal cost is zero.
 - **aider** is off unless `CAVEMAN_AIDER_ROOT` points at a directory to walk.
   aider history has no provider usage, so it adds nothing to depth, dumbzone,
   spend or trends.
-- **Config roots.** Transcript and config scanning use `~/.claude` and
-  `~/.codex` (or the `CAVEMAN_*_ROOT` overrides). `CLAUDE_CONFIG_DIR` is
-  honored only by the memory doctor, and `CODEX_HOME` is not honored by the
-  scan.
 - **Context windows.** A window comes from the shared model catalog. For
   un-cataloged models learn assumes 1M if the model id contains `1m`, 400k
   for OpenAI, 1,048,576 for Gemini, and 200k otherwise. If a session's context
