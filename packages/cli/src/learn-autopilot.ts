@@ -25,6 +25,8 @@ type Nudge = { line: string; sink_ids: string[]; created_at: string; announced_a
 
 const ANNOUNCE_CLASSES = new Set(["reducible", "recurring_context"]);
 const ANNOUNCE_MIN_TOKENS_PER_TURN = 2000;
+// Doctor findings that break what the agent loads qualify with no token rate.
+const ANNOUNCE_DOCTOR_PREFIXES = ["memory_health:broken_imports:", "memory_health:memory_truncation:"];
 const SEEN_CAP = 500;
 
 function caveHome(): string {
@@ -192,11 +194,23 @@ function sinksOf(value: unknown): ScanSink[] | undefined {
   return Array.isArray(sinks) ? sinks as ScanSink[] : undefined;
 }
 
-export function nudgeLine(fresh: Array<{ title: string; tokens_per_turn: number }>): string {
-  const top = fresh[0]!;
-  const title = top.title.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 80);
-  const lead = fresh.length === 1 ? "new token sink" : `${fresh.length} new token sinks, biggest`;
-  return `caveman learn: ${lead} — ${title} (~${compactTokens(top.tokens_per_turn)} tokens/turn). Run \`caveman learn\` to review.`;
+type Fresh = { title: string; tokens_per_turn: number; doctor?: boolean };
+
+// nudgeLine leads with the biggest new token sink; memory & rules findings
+// ride along as a count, or lead when they are all that is new.
+export function nudgeLine(fresh: Fresh[]): string {
+  const clean = (title: string) => title.replace(/[\u0000-\u001f\u007f]+/g, " ").trim().slice(0, 80);
+  const sinks = fresh.filter((item) => !item.doctor);
+  const doctor = fresh.filter((item) => item.doctor);
+  const findings = (n: number) => `${n} memory & rules finding${n === 1 ? "" : "s"}`;
+  if (sinks.length === 0) {
+    const more = doctor.length > 1 ? ` (+${doctor.length - 1} more)` : "";
+    return `caveman learn: memory & rules — ${clean(doctor[0]!.title)}${more}. Run \`caveman learn --all\` to review.`;
+  }
+  const top = sinks[0]!;
+  const lead = sinks.length === 1 ? "new token sink" : `${sinks.length} new token sinks, biggest`;
+  const extra = doctor.length > 0 ? `, plus ${findings(doctor.length)}` : "";
+  return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens/turn)${extra}. Run \`caveman learn\` to review.`;
 }
 
 // Child side (`caveman learn autopilot run`). Holds the lock for the whole
@@ -234,11 +248,18 @@ export function runAutopilot(proxyBin: string): number {
       writeJson(paths.state, state);
       return 1;
     }
+    const doctorFinding = (sink: ScanSink) => typeof sink.sink_id === "string"
+      && ANNOUNCE_DOCTOR_PREFIXES.some((prefix) => (sink.sink_id as string).startsWith(prefix));
     const big = sinks
-      .filter((sink) => typeof sink.sink_id === "string" && typeof sink.class === "string" && ANNOUNCE_CLASSES.has(sink.class)
-        && typeof sink.tokens_per_turn === "number" && sink.tokens_per_turn >= ANNOUNCE_MIN_TOKENS_PER_TURN)
-      .map((sink) => ({ sink_id: sink.sink_id as string, title: typeof sink.title === "string" ? sink.title : sink.sink_id as string, tokens_per_turn: sink.tokens_per_turn as number }))
-      .sort((a, b) => b.tokens_per_turn - a.tokens_per_turn);
+      .filter((sink) => doctorFinding(sink) || (typeof sink.sink_id === "string" && typeof sink.class === "string" && ANNOUNCE_CLASSES.has(sink.class)
+        && typeof sink.tokens_per_turn === "number" && sink.tokens_per_turn >= ANNOUNCE_MIN_TOKENS_PER_TURN))
+      .map((sink) => ({
+        sink_id: sink.sink_id as string,
+        title: typeof sink.title === "string" ? sink.title : sink.sink_id as string,
+        tokens_per_turn: typeof sink.tokens_per_turn === "number" ? sink.tokens_per_turn : 0,
+        doctor: doctorFinding(sink),
+      }))
+      .sort((a, b) => Number(a.doctor) - Number(b.doctor) || b.tokens_per_turn - a.tokens_per_turn);
     const baseline = state.seen === undefined;
     const seen = new Set(state.seen ?? []);
     const fresh = big.filter((sink) => !seen.has(sink.sink_id));
