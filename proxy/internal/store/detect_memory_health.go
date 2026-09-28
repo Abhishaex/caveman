@@ -68,23 +68,43 @@ func memoryHealthSinks(cwd string, turnsPerDay float64) []Sink {
 			memIndex = &files[i]
 		}
 	}
+	// Repo-specific findings name their repo so a nudge can say where they are;
+	// the memory sinks' ids also carry a memory-dir fingerprint, so repo B's
+	// truncation is never mistaken for repo A's already-announced one.
+	withRepo := func(found []Sink, repo string) []Sink {
+		if repo != "" && repo != "." && repo != string(filepath.Separator) {
+			for i := range found {
+				found[i].Evidence["repo"] = filepath.Base(repo)
+			}
+		}
+		return found
+	}
 	if memIndex != nil {
-		sinks = append(sinks, memoryTruncationSink(memIndex)...)
-		sinks = append(sinks, memoryOrphansSink(memIndex, memDir, turnsPerDay)...)
+		repo := ""
+		if cwd != "" {
+			repo = memoryProjectRoot(cwd)
+		}
+		sinks = append(sinks, withRepo(memoryTruncationSink(memIndex), repo)...)
+		sinks = append(sinks, withRepo(memoryOrphansSink(memIndex, memDir, turnsPerDay), repo)...)
 	}
 	for i := range files {
 		f := &files[i]
 		if f.Scope == "memory" {
 			continue
 		}
+		var found []Sink
 		if f.Agents["claude"] || f.Agents["gemini"] {
 			// @path imports are Claude Code and Gemini CLI syntax; Codex reads @ literally.
-			sinks = append(sinks, brokenImportsSink(f)...)
+			found = append(found, brokenImportsSink(f)...)
 		}
 		if f.Scope == "project" {
-			sinks = append(sinks, staleReferencesSink(f)...)
+			found = append(found, staleReferencesSink(f)...)
 		}
-		sinks = append(sinks, buriedRulesSink(f)...)
+		found = append(found, buriedRulesSink(f)...)
+		if f.Scope == "project" {
+			found = withRepo(found, f.RepoTop)
+		}
+		sinks = append(sinks, found...)
 	}
 	for _, agent := range []string{"claude", "codex", "gemini"} {
 		sinks = append(sinks, duplicateRulesSink(files, agent, turnsPerDay)...)
@@ -319,7 +339,7 @@ func memoryTruncationSink(f *instructionFile) []Sink {
 		}
 	}
 	notLoaded, basis := configTokenCount(strings.Join(f.Lines[f.Loaded:], "\n"))
-	return []Sink{memorySink("memory_truncation", "memory",
+	return []Sink{memorySink("memory_truncation", fileFingerprint(filepath.Dir(f.Path)),
 		fmt.Sprintf("MEMORY.md is %s; %s (%d %s) past the session-start cutoff never %s",
 			plural(len(f.Lines), "line"), plural(past, "line"), entries, pick(entries, "index entry", "index entries"), pick(past, "loads", "load")),
 		classBehavioral, 0, 0, map[string]any{
@@ -380,7 +400,7 @@ func memoryOrphansSink(f *instructionFile, memDir string, turnsPerDay float64) [
 		class = classReducible
 	}
 	_, basis := configTokenCount("")
-	return []Sink{memorySink("memory_orphans", "memory",
+	return []Sink{memorySink("memory_orphans", fileFingerprint(memDir),
 		fmt.Sprintf("Auto memory: %s MEMORY.md never links, %s to missing files", plural(len(orphans), "file"), plural(len(dangling), "index link")),
 		class, danglingTokens, turnsPerDay, map[string]any{
 			"path": f.Path, "memory_dir": memDir, "orphan_files": capStrings(orphans), "orphan_count": len(orphans),

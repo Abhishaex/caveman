@@ -102,7 +102,7 @@ test("SessionEnd spawns a detached scan, then throttles", { skip: !posix }, asyn
     const out = await hook(fastHook, "claude", { hook_event_name: "SessionEnd", session_id: "s1" }, box.env);
     assert.equal(out.code, 0, out.stderr);
     assert.ok(await waitFor(() => existsSync(join(box.runtime, "learn-autopilot.json")) && box.state().last_scan_at), "detached scan never finished");
-    assert.deepEqual(box.calls(), ["learn scan --write-report --no-remember"]);
+    assert.deepEqual(box.calls(), [`learn scan --write-report --no-remember --reports-home ${join(box.runtime, "learn-autopilot")}`]);
     assert.ok(!existsSync(join(box.runtime, "learn-autopilot.lock")), "lock released");
     // First scan is a baseline: nothing announced, big eligible sink recorded as seen.
     assert.deepEqual(box.state().seen, ["claude_md_weight:project"]);
@@ -297,7 +297,7 @@ test("new broken-import and memory-truncation findings qualify for the nudge, on
     await run([cli, "learn", "autopilot", "run"], box.env);
     await hook(cli, "claude", sessionStart("startup"), box.env); // drain the token-sink nudge
     const doctor = [
-      { sink_id: "memory_health:broken_imports:abcd1234", title: "CLAUDE.md (project) has 2 @imports that resolve to missing files", class: "behavioral", tokens_per_turn: 0 },
+      { sink_id: "memory_health:broken_imports:abcd1234", title: "CLAUDE.md (project) has 2 @imports that resolve to missing files", class: "behavioral", tokens_per_turn: 0, evidence: { repo: "webapp" } },
       { sink_id: "memory_health:memory_truncation:memory", title: "MEMORY.md is 240 lines; 40 lines past the cutoff never load", class: "behavioral", tokens_per_turn: 0 },
       { sink_id: "memory_health:stale_references:ffff0000", title: "CLAUDE.md names 3 repo paths that no longer exist", class: "behavioral", tokens_per_turn: 0 },
     ];
@@ -306,7 +306,7 @@ test("new broken-import and memory-truncation findings qualify for the nudge, on
     await run([cli, "learn", "autopilot", "run"], box.env);
     const out = await hook(cli, "claude", sessionStart("startup"), box.env);
     assert.equal(JSON.parse(out.stdout).systemMessage,
-      "caveman learn: memory & rules — CLAUDE.md (project) has 2 @imports that resolve to missing files (+1 more). Run `caveman learn --all` to review.");
+      "caveman learn: memory & rules (webapp) — CLAUDE.md (project) has 2 @imports that resolve to missing files (+1 more). Run `caveman learn --all` to review.");
     assert.ok(!box.state().seen.includes("memory_health:stale_references:ffff0000"), "only broken imports and truncation qualify");
     await new Promise((r) => setTimeout(r, 20));
     await run([cli, "learn", "autopilot", "run"], box.env);

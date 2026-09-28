@@ -316,3 +316,19 @@ func TestLearnScanNoRememberSkipsDurableLearnings(t *testing.T) {
 		t.Fatal("a plain scan should still record learnings")
 	}
 }
+
+func TestLearnScanReportsHomeLeavesCanonicalReportAlone(t *testing.T) {
+	home, _ := learnWireEnv(t)
+	alt := filepath.Join(home, "runtime", "learn-autopilot")
+	var plan store.LearnPlan
+	learnJSON(t, &plan, "scan", "--write-report", "--no-remember", "--reports-home", alt)
+	if _, err := os.Stat(filepath.Join(alt, "reports", "caveman-learn.json")); err != nil {
+		t.Fatalf("autopilot report missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(alt, "reports", "caveman-learn.html")); err != nil {
+		t.Fatalf("autopilot html missing: %v", err)
+	}
+	if entries, _ := filepath.Glob(filepath.Join(home, "reports", "caveman-learn*")); len(entries) != 0 {
+		t.Fatalf("--reports-home touched canonical reports: %v", entries)
+	}
+}

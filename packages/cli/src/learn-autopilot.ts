@@ -44,6 +44,10 @@ export function autopilotPaths() {
     lock: join(dir, "learn-autopilot.lock"),
     nudge: join(dir, "learn-autopilot-nudge.json"),
     announced: join(dir, "learn-autopilot-announced.json"),
+    // Autopilot's own reports home: its scans run with whatever cwd and env the
+    // last SessionEnd hook had, so they never overwrite the canonical report,
+    // dated snapshots or trend history a user's own run writes.
+    reports: join(dir, "learn-autopilot"),
   };
 }
 
@@ -187,14 +191,14 @@ function compactTokens(n: number): string {
   return String(Math.round(n));
 }
 
-type ScanSink = { sink_id?: unknown; title?: unknown; class?: unknown; tokens_per_turn?: unknown };
+type ScanSink = { sink_id?: unknown; title?: unknown; class?: unknown; tokens_per_turn?: unknown; evidence?: { repo?: unknown } };
 
 function sinksOf(value: unknown): ScanSink[] | undefined {
   const sinks = value && typeof value === "object" ? (value as { sinks?: unknown }).sinks : undefined;
   return Array.isArray(sinks) ? sinks as ScanSink[] : undefined;
 }
 
-type Fresh = { title: string; tokens_per_turn: number; doctor?: boolean };
+type Fresh = { title: string; tokens_per_turn: number; doctor?: boolean; repo?: string };
 
 // nudgeLine leads with the biggest new token sink; memory & rules findings
 // ride along as a count, or lead when they are all that is new.
@@ -205,7 +209,8 @@ export function nudgeLine(fresh: Fresh[]): string {
   const findings = (n: number) => `${n} memory & rules finding${n === 1 ? "" : "s"}`;
   if (sinks.length === 0) {
     const more = doctor.length > 1 ? ` (+${doctor.length - 1} more)` : "";
-    return `caveman learn: memory & rules — ${clean(doctor[0]!.title)}${more}. Run \`caveman learn --all\` to review.`;
+    const where = doctor[0]!.repo ? ` (${clean(doctor[0]!.repo)})` : "";
+    return `caveman learn: memory & rules${where} — ${clean(doctor[0]!.title)}${more}. Run \`caveman learn --all\` to review.`;
   }
   const top = sinks[0]!;
   const lead = sinks.length === 1 ? "new token sink" : `${sinks.length} new token sinks, biggest`;
@@ -223,7 +228,7 @@ export function runAutopilot(proxyBin: string): number {
     if (!due(state)) return 0;
     state.last_attempt_at = new Date().toISOString();
     writeJson(paths.state, state);
-    const result = spawnSync(proxyBin, ["learn", "scan", "--write-report", "--no-remember"], {
+    const result = spawnSync(proxyBin, ["learn", "scan", "--write-report", "--no-remember", "--reports-home", paths.reports], {
       encoding: "utf8",
       env: process.env,
       timeout: autopilotTimeoutSeconds() * 1000,
@@ -242,7 +247,7 @@ export function runAutopilot(proxyBin: string): number {
     }
     let sinks: ScanSink[] | undefined;
     try { sinks = sinksOf(JSON.parse(result.stdout)); } catch { /* read the written report */ }
-    sinks ??= sinksOf(readJson(join(caveHome(), "reports", "caveman-learn.json")));
+    sinks ??= sinksOf(readJson(join(paths.reports, "reports", "caveman-learn.json")));
     if (!sinks) {
       state.last_error = "scan produced no readable report";
       writeJson(paths.state, state);
@@ -258,6 +263,7 @@ export function runAutopilot(proxyBin: string): number {
         title: typeof sink.title === "string" ? sink.title : sink.sink_id as string,
         tokens_per_turn: typeof sink.tokens_per_turn === "number" ? sink.tokens_per_turn : 0,
         doctor: doctorFinding(sink),
+        ...(typeof sink.evidence?.repo === "string" ? { repo: sink.evidence.repo } : {}),
       }))
       .sort((a, b) => Number(a.doctor) - Number(b.doctor) || b.tokens_per_turn - a.tokens_per_turn);
     const baseline = state.seen === undefined;

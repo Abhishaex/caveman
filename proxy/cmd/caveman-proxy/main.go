@@ -701,7 +701,10 @@ func runLearn(logger *slog.Logger, args []string) {
 		if err != nil {
 			fatalJSON(logger, err)
 		}
-		store.AttachLearnTrendHistory(&plan, home, time.Now())
+		// --reports-home keeps an unattended scan's report, snapshots and trend
+		// history apart from the canonical ones a user's own run writes.
+		reportsHome := argFlag(args, "--reports-home", home)
+		store.AttachLearnTrendHistory(&plan, reportsHome, time.Now())
 		counts := []string{}
 		for _, source := range slices.Sorted(maps.Keys(plan.SessionsBySource)) {
 			if n := plan.SessionsBySource[source]; n > 0 {
@@ -713,12 +716,12 @@ func runLearn(logger *slog.Logger, args []string) {
 		}
 		fmt.Fprintf(os.Stderr, "%s · scoring…\n", strings.Join(counts, " · "))
 		if hasArg(args, "--write-report") {
-			out := argFlag(args, "--out", store.DefaultLearnReportPath(home))
+			out := argFlag(args, "--out", store.DefaultLearnReportPath(reportsHome))
 			if err := spend.WriteLearnHTML(plan, out); err != nil {
 				fatalJSON(logger, err)
 			}
 			generation := argFlag(args, "--write-report-token", "")
-			if _, err := spend.WriteLearnSidecars(home, plan, time.Now(), generation); err != nil {
+			if _, err := spend.WriteLearnSidecars(reportsHome, plan, time.Now(), generation); err != nil {
 				fatalJSON(logger, err)
 			}
 		}
@@ -799,7 +802,7 @@ var positionalValueFlags = map[string]bool{
 	"--agent": true, "--behavior-budget-ms": true, "--build": true,
 	"--command": true, "--decision": true, "--exit-code": true,
 	"--fix-kind": true, "--note": true, "--out": true, "--path": true,
-	"--plan": true, "--port": true, "--recent": true, "--repo": true,
+	"--plan": true, "--port": true, "--recent": true, "--repo": true, "--reports-home": true,
 	"--retro-budget-ms": true, "--session": true, "--since": true,
 	"--sources": true, "--trial-id": true, "--write-report-token": true,
 	"--sink": true, "--usage-export": true,

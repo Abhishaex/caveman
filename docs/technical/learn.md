@@ -44,12 +44,12 @@ All paths are under `$CAVEMAN_HOME` (default `~/.caveman`) unless noted.
 |---|---|
 | Any command that builds a plan (default run, `scan`, `report`, `apply`, `applied`, `simulate`, `savings`, `export`, `experiment report`) | `caveman.db` tables `config_snapshots`, `config_snapshot_history`, `learn_sinks` |
 | `caveman learn` and `learn scan` (not with `--no-remember`, which autopilot always passes) | Also: one cavemem memory per `reducible` sink (title plus suggestion) in `mem/mem.db`, and a matching row in the `learnings` table |
-| `caveman learn`, `learn scan --write-report`, `learn report`, autopilot | `reports/caveman-learn.html`, `reports/caveman-learn.json`, `reports/caveman-learn.YYYY-MM-DD.json` (last 8 dated snapshots kept) |
+| `caveman learn`, `learn scan --write-report`, `learn report` | `reports/caveman-learn.html`, `reports/caveman-learn.json`, `reports/caveman-learn.YYYY-MM-DD.json` (last 8 dated snapshots kept) |
 | `learn apply <sink>` without `--dry-run` | `candidates/learn-<sink>.json` |
 | `learn applied` | row in `applied_fixes` |
 | `learn experiment start/arm/stop` | rows in `experiments`, `experiment_arms` |
 | `learn export` | `reports/caveman-learn-digest.json` (or `--out <path>`) |
-| Autopilot | `runtime/learn-autopilot.json`, `.lock`, `-nudge.json`, `-announced.json` |
+| Autopilot | `runtime/learn-autopilot.json`, `.lock`, `-nudge.json`, `-announced.json`, and its own report, snapshots and trend history under `runtime/learn-autopilot/reports/` |
 | `learn autopilot on/off` | key `learnAutopilot` in `~/.caveman-cloud/config.json` |
 | `learn implement` | the skill file, only if missing: `./.claude/skills/caveman-learn/SKILL.md` (Claude Code) or `$CODEX_HOME/skills/caveman-learn/SKILL.md` (Codex) |
 
@@ -138,14 +138,14 @@ Notes per command:
 
 ## Autopilot
 
-Autopilot keeps the report fresh without you running learn.
+Autopilot rescans in the background and tells you about new findings without you running learn. It keeps its own report under `runtime/learn-autopilot/reports/`: its scans run with whatever working directory and environment the last session-end hook had, so they never overwrite the canonical report, dated snapshots or trend history your own `caveman learn` writes.
 
 | Aspect | Behavior |
 |---|---|
 | Trigger | The Caveman native hook's `SessionEnd` event (Claude Code, Codex, Gemini CLI; opencode and Hermes bridges forward it). The hook spawns a detached, idle-priority `caveman learn autopilot run` and returns immediately. |
 | Throttle | At most one scan per 6 hours. `CAVEMAN_LEARN_AUTOPILOT_HOURS` changes it. One scan at a time (lock file; stale after timeout + 60 s). |
-| Scan | `learn scan --write-report --no-remember` with the default window and sources, killed at `CAVE_LEARN_TIMEOUT`. |
-| Writes | The report files, the `caveman.db` plan tables every scan updates, and its own `runtime/learn-autopilot*` state. Never cavemem memories or `learnings` rows: `--no-remember` skips them, because sink titles carry changing counts and each unattended run would add a near-duplicate. |
+| Scan | `learn scan --write-report --no-remember --reports-home $CAVEMAN_HOME/runtime/learn-autopilot` with the default window and sources, killed at `CAVE_LEARN_TIMEOUT`. |
+| Writes | Its own report files, the `caveman.db` plan tables every scan updates, and its own `runtime/learn-autopilot*` state. Never cavemem memories or `learnings` rows: `--no-remember` skips them, because sink titles carry changing counts and each unattended run would add a near-duplicate. |
 | Enable precedence | `CAVEMAN_LEARN_AUTOPILOT` env (`0`, `false`, `off`, `no` disable; anything else enables) → `learnAutopilot` in `~/.caveman-cloud/config.json` → off when `CI` is set (not `0`/`false`) or under `NODE_TEST_CONTEXT` → on. |
 | Opt out | `caveman learn autopilot off`, or `CAVEMAN_LEARN_AUTOPILOT=0`. |
 | State | `$CAVEMAN_HOME/runtime/learn-autopilot*.json`. Writes are temp-file + rename and refuse symlinked parents. |
@@ -168,7 +168,7 @@ Rules:
   threshold.
 - `memory_health:broken_imports` and `memory_health:memory_truncation` qualify
   with no token threshold: they break what the agent loads. When they are all
-  that is new they lead the line (`caveman learn: memory & rules — <title>.
+  that is new they lead the line (`caveman learn: memory & rules (<repo>) — <title>.
   Run \`caveman learn --all\` to review.`); otherwise they are appended as
   ", plus N memory & rules findings".
 - Only sinks not seen by an earlier autopilot scan. The first scan records a
@@ -250,8 +250,8 @@ Classes:
 | `procedure_repeat:<key>` | behavioral | A 3–6 step tool-signature sequence repeated in ≥3 sessions (≥15k tokens) | `skill_distillation` | No; holdout only |
 | `config_growth` | behavioral | Growth (≥400 tokens and ≥20%) in always-loaded config versus this machine's snapshot history | none | No |
 | `memory_health:duplicate_rules:{claude,codex,gemini}` | reducible | Rules (≥6 words) loaded from more than one file per agent session | `dedupe_rules` | Yes, via skill |
-| `memory_health:memory_orphans:memory` | reducible when index links to missing files load tokens, else behavioral | Memory files `MEMORY.md` never links; index links to missing files | `memory_index_repair` | Via skill, per item |
-| `memory_health:memory_truncation:memory` | behavioral | `MEMORY.md` lines past the session-start cutoff | `memory_index_condense` | Via skill, per item |
+| `memory_health:memory_orphans:<memory-dir hash>` | reducible when index links to missing files load tokens, else behavioral | Memory files `MEMORY.md` never links; index links to missing files | `memory_index_repair` | Via skill, per item |
+| `memory_health:memory_truncation:<memory-dir hash>` | behavioral | `MEMORY.md` lines past the session-start cutoff | `memory_index_condense` | Via skill, per item |
 | `memory_health:broken_imports:<file-hash>` | behavioral | `@import` paths that resolve to missing files | none | Via skill, per item |
 | `memory_health:stale_references:<file-hash>` | behavioral | Backticked repo paths in project instruction files that no longer exist | none | Via skill, per item |
 | `memory_health:buried_rules:<file-hash>` | behavioral | ≥3 `NEVER`/`ALWAYS`/`MUST`/`IMPORTANT`/`CRITICAL` lines in the middle 30–70% of a file over 150 lines. Heuristic. | none | Via skill, per item |

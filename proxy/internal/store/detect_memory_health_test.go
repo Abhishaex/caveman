@@ -73,7 +73,7 @@ func TestMemoryTruncation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, repo := memoryHealthEnv(t)
 			mustWrite(t, filepath.Join(autoMemoryDir(repo), "MEMORY.md"), tc.body)
-			got := memorySinksWithPrefix(memoryHealthSinks(repo, 0), "memory_health:memory_truncation:memory")
+			got := memorySinksWithPrefix(memoryHealthSinks(repo, 0), "memory_health:memory_truncation:")
 			if (len(got) == 1) != tc.wantHit {
 				t.Fatalf("hit=%v want %v: %+v", len(got) == 1, tc.wantHit, got)
 			}
@@ -110,7 +110,7 @@ func TestMemoryOrphans(t *testing.T) {
 			for _, f := range tc.files {
 				mustWrite(t, filepath.Join(dir, f), "note\n")
 			}
-			got := memorySinksWithPrefix(memoryHealthSinks(repo, 10), "memory_health:memory_orphans:memory")
+			got := memorySinksWithPrefix(memoryHealthSinks(repo, 10), "memory_health:memory_orphans:")
 			if (len(got) == 1) != tc.wantHit {
 				t.Fatalf("hit=%v want %v: %+v", len(got) == 1, tc.wantHit, got)
 			}
@@ -361,5 +361,23 @@ func TestBrokenImportsSkipsCodexOnlyFiles(t *testing.T) {
 	mustWrite(t, filepath.Join(repo, "GEMINI.md"), "@./gone.md\n")
 	if got := memorySinksWithPrefix(memoryHealthSinks(repo, 0), "memory_health:broken_imports:"); len(got) != 1 || got[0].Evidence["path"] != filepath.Join(repo, "GEMINI.md") {
 		t.Fatalf("GEMINI.md @imports must still be checked: %+v", got)
+	}
+}
+
+func TestMemorySinkIDsAndRepoAreRepoSpecific(t *testing.T) {
+	_, repo := memoryHealthEnv(t)
+	other := filepath.Join(filepath.Dir(repo), "other")
+	mustMkdir(t, filepath.Join(other, ".git"))
+	var ids []string
+	for _, r := range []string{repo, other} {
+		mustWrite(t, filepath.Join(autoMemoryDir(r), "MEMORY.md"), numberedLines(260, "- entry %d"))
+		got := memorySinksWithPrefix(memoryHealthSinks(r, 0), "memory_health:memory_truncation:")
+		if len(got) != 1 || got[0].Evidence["repo"] != filepath.Base(r) {
+			t.Fatalf("%s truncation = %+v", r, got)
+		}
+		ids = append(ids, got[0].SinkID)
+	}
+	if ids[0] == ids[1] {
+		t.Fatalf("truncation in two repos shares one id %q", ids[0])
 	}
 }
