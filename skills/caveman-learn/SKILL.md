@@ -134,18 +134,26 @@ Reporting savings (caveman learn savings):
 The ledger shows what applied fixes returned, grouped by HOW it was measured. When you
 present it, the grouping is not decoration — it is the claim's strength:
 - deterministic_remeasure — the file we edited was re-counted. Strongest local rung.
-- controlled_holdout — measured with the change on vs off on this machine.
-- counterfactual_replay — real history re-run with the change applied.
 - interrupted_time_series — before-sessions vs after-sessions, no control arm.
+- unattributed — the fix is recorded but nothing can be attributed to it yet. Not a
+  saving; say so.
+
+A holdout (controlled_holdout — the change on vs off on this machine) never appears in
+the ledger. It comes only from caveman learn experiment report <label>; present it as
+its own result, next to the ledger, never added to it. No command produces a
+counterfactual_replay row yet, so never claim one.
 
 Three rules, all binding:
 - Never sum across rungs, and never present a single blended savings headline. A
-  re-counted file and a before/after median are not the same kind of evidence.
+  re-counted file, a holdout and a before/after median are not the same kind of
+  evidence.
 - Always read out the `confounders` on a row you are presenting as a win. They are
   standing caveats, not fine print, and they exist precisely for the good-news case.
 - Read `attribution.provenance`. `intact` means the file still carries the edit we
   proposed. `changed_since` means someone edited past it and part of the delta is not
   ours — say so. `target_missing` means the delta cannot be tied to the fix at all.
+  `not_fingerprinted` means the fix predates fingerprinting, so the edit's presence is
+  unverified. Experiments carry `not_applicable`: there is no single edit to check.
   Never present a `changed_since` or `target_missing` row as a caveman result.
 
 A regression carries no dollar figure by design. Present it with its verdict and offer

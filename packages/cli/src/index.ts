@@ -16840,7 +16840,7 @@ function learnImplementPrompt(focus: string): string {
     "Run `caveman learn report --json`; if no current report exists, run `caveman learn --json` once and retry. Then present a short list of actionable findings.",
     "Work through selected fixes one at a time. Never edit load_bearing findings.",
     "Show the proposed diff and before → after token count, ask before every edit, apply only approved changes, then verify the reduction and any recall path.",
-    "Keep every local savings claim labeled inferred and never attach currency.",
+    "Keep every local savings claim labeled inferred. Attach currency only where the report itself carries it (the spend block and priced savings rows), with that block's framing: window-bounded, never projected, never verified.",
   ];
   if (focus) lines.push(`User focus: ${focus}`);
   return lines.join(" ");
