@@ -391,3 +391,17 @@ func TestSessionContextPastFallbackWindowInfersLargerWindow(t *testing.T) {
 		t.Fatalf("capped session must stay on the 200k fallback: %+v", small)
 	}
 }
+
+func TestInferredWindowOnCatalogModelIsNotAFallback(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.jsonl")
+	body := `{"type":"assistant","message":{"id":"a","model":"claude-sonnet-4-5","usage":{"input_tokens":120000}}}` + "\n" +
+		`{"type":"assistant","message":{"id":"b","model":"claude-sonnet-4-5","usage":{"input_tokens":300000}}}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	beh := behaviorScan{SkillUse: map[string]int{}, SessionsBySource: map[string]int{}}
+	scanClaudeTranscriptBehavior(path, "repo/s.jsonl", time.Time{}, nil, &beh, newRecurringMiner())
+	if !beh.InferredWindowSources["claude"] || beh.FallbackWindowSources["claude"] || beh.DumbzoneTurns != 0 || beh.DumbzoneExcessTokens != 0 {
+		t.Fatalf("catalog session past its 200k window = %+v", beh)
+	}
+}

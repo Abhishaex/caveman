@@ -306,7 +306,7 @@ func (c *sessionEventConsumer) resolveWindows() {
 		}
 		c.behavior.DumbzoneTurns++
 		c.metric.Dumbzone++
-		if exact {
+		if exact && !inferred {
 			if sum, ok := checkedNonNegativeSum(c.behavior.DumbzoneExcessTokens, int64(t.ctx-line)); ok {
 				c.behavior.DumbzoneExcessTokens = sum
 			}

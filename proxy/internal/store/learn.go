@@ -701,7 +701,7 @@ func crossProviderSinks(rec recurringResult, beh behaviorScan) []Sink {
 	}
 	var depths []sourceDepth
 	for source, peaks := range beh.SessionPeakPctBySource {
-		if len(peaks) == 0 || beh.SessionsBySource[source] == 0 || beh.FallbackWindowSources[source] {
+		if len(peaks) == 0 || beh.SessionsBySource[source] == 0 || beh.FallbackWindowSources[source] || beh.InferredWindowSources[source] {
 			continue
 		}
 		depths = append(depths, sourceDepth{id: source, median: medianInts(peaks), sessions: len(peaks)})
@@ -1217,7 +1217,9 @@ func (s *sessionWindows) add(provider, model string, ctx int) windowTurn {
 }
 
 // resolve returns the window a turn is measured against. inferred is true when
-// the session's own context exceeded the assumed window.
+// the session's own context exceeded the assumed window; exact still reports
+// whether that assumed window came from the catalog, so an inferred catalog
+// session is not mistaken for a missing catalog match.
 func (s *sessionWindows) resolve(t windowTurn) (window int, exact, inferred bool) {
 	observed := s.peak[t.window]
 	if observed <= t.window {
@@ -1225,10 +1227,10 @@ func (s *sessionWindows) resolve(t windowTurn) (window int, exact, inferred bool
 	}
 	for _, next := range []int{1_000_000, 2_000_000} {
 		if next > t.window && next >= observed {
-			return next, false, true
+			return next, t.exact, true
 		}
 	}
-	return observed, false, true
+	return observed, t.exact, true
 }
 
 // dumbzone counts turns past the dumbzone line of their resolved window.
