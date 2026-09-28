@@ -908,7 +908,7 @@ ul.caveats li{margin:6px 0}
 
 {{with .Plan.ContextDepth}}
 <h2>Session Context Depth</h2>
-<p class="note">Each session's peak context as a share of its model's window, from provider-counted usage in {{plural .Sessions "session"}}. Window sizes are assumed per-provider defaults. This measures how deep sessions run, a quality and habit signal, not a dollar figure. Deep sessions re-send the whole history every turn, and quality degrades well before the window limit: compact or split before half the window, or offload recurring context to cavemem.</p>
+<p class="note">Each session's peak context as a share of its model's window, from provider-counted usage in {{plural .Sessions "session"}}. Window sizes come from the model catalog, else a per-provider default; a session whose context outgrows that default is measured against a window inferred from its observed context (1M, then 2M). This measures how deep sessions run, a quality and habit signal, not a dollar figure. Deep sessions re-send the whole history every turn, and quality degrades well before the window limit: compact or split before half the window, or offload recurring context to cavemem.</p>
 <div class="dcard">
   <div class="kicker">Session health · not a cost figure</div>
   <div class="dstats">
