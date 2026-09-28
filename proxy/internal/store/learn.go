@@ -69,11 +69,13 @@ type behaviorScan struct {
 	SessionTexts           []sessionTextObservation
 	SessionMetrics         []learnSessionMetric
 	SessionOutcomes        []sessionOutcome
+	TrendSessions          []trendSession
 	SubagentSpend          subagentSpendTracker
 	Procedures             procedureMiner
 	Spend                  spendAccumulator
 	ToolPortfolio          toolPortfolioTracker
 	FallbackWindowSources  map[string]bool
+	InferredWindowSources  map[string]bool // sessions whose context outgrew the assumed window
 	From, To               string
 }
 
@@ -211,6 +213,9 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	if len(beh.FallbackWindowSources) > 0 {
 		plan.Caveats = append(plan.Caveats, "Some context window sizes are assumed per-provider defaults because exact shared-catalog matches were unavailable. Those turns still count toward depth percentages, but contribute no excess-token floor or cross-provider depth comparison.")
 	}
+	if len(beh.InferredWindowSources) > 0 {
+		plan.Caveats = append(plan.Caveats, "Some sessions' context grew past the assumed window (transcripts often omit a 1M-window suffix), so their window was inferred from observed context and every turn of those sessions was measured against it.")
+	}
 
 	deadTokens, deadSkills := deadLoadSkills(cfg, beh)
 
@@ -241,6 +246,7 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 	plan.Sinks = append(plan.Sinks, rereadWasteSink(beh.RereadSessions)...)
 	plan.Sinks = append(plan.Sinks, compactionChurnSink(beh.CompactionSessions)...)
 	plan.Sinks = append(plan.Sinks, mcpSurfaceSink(cfg, plan.Sinks)...)
+	plan.Sinks = append(plan.Sinks, memoryHealthSinks(cwd, turnsPerDay)...)
 	sectionsTimeBoxed := deadline != nil && deadline.expired()
 	if !sectionsTimeBoxed {
 		plan.Sinks = append(plan.Sinks, claudeMDSectionSinks(cfg, beh.SessionTexts)...)
@@ -283,6 +289,9 @@ func (s *Store) buildLearnPlan(cwd string, sources []string, sinceExpr string, r
 		plan.Repos = learnRepos(beh.SessionMetrics)
 	} else {
 		plan.Caveats = appendUnique(plan.Caveats, "Repository summaries were omitted because the shared behavioral deadline truncated their primary event scan.")
+	}
+	if !behaviorTimeBoxed {
+		plan.Trends = buildLearnTrends(beh.TrendSessions, since, sinceClock())
 	}
 	confirmed, confirmedTimeBoxed := s.confirmedFixes(cfg, sourceSet, repoFilter, deadline)
 	if !confirmedTimeBoxed {
@@ -692,7 +701,7 @@ func crossProviderSinks(rec recurringResult, beh behaviorScan) []Sink {
 	}
 	var depths []sourceDepth
 	for source, peaks := range beh.SessionPeakPctBySource {
-		if len(peaks) == 0 || beh.SessionsBySource[source] == 0 || beh.FallbackWindowSources[source] {
+		if len(peaks) == 0 || beh.SessionsBySource[source] == 0 || beh.FallbackWindowSources[source] || beh.InferredWindowSources[source] {
 			continue
 		}
 		depths = append(depths, sourceDepth{id: source, median: medianInts(peaks), sessions: len(peaks)})
@@ -1085,6 +1094,7 @@ func mergeBehaviorScan(dst, src *behaviorScan) {
 	}
 	dst.SessionMetrics = append(dst.SessionMetrics, src.SessionMetrics...)
 	dst.SessionOutcomes = append(dst.SessionOutcomes, src.SessionOutcomes...)
+	dst.TrendSessions = append(dst.TrendSessions, src.TrendSessions...)
 	dst.SubagentSpend.merge(src.SubagentSpend)
 	dst.Procedures.merge(src.Procedures)
 	dst.Spend.merge(src.Spend)
@@ -1094,6 +1104,12 @@ func mergeBehaviorScan(dst, src *behaviorScan) {
 	}
 	for source := range src.FallbackWindowSources {
 		dst.FallbackWindowSources[source] = true
+	}
+	for source := range src.InferredWindowSources {
+		if dst.InferredWindowSources == nil {
+			dst.InferredWindowSources = map[string]bool{}
+		}
+		dst.InferredWindowSources[source] = true
 	}
 	if dst.SessionsBySource == nil {
 		dst.SessionsBySource = map[string]int{}
@@ -1170,6 +1186,62 @@ func contextWindow(provider, model string) (int, bool) {
 	default:
 		return 200_000, false
 	}
+}
+
+// windowTurn is one usage-bearing turn measured against its assumed window.
+type windowTurn struct {
+	ctx, window int
+	exact       bool
+}
+
+// sessionWindows buffers a session's per-turn context sizes so dumbzone and
+// peak depth are judged after the whole session is seen. Claude Code records
+// "claude-opus-5-5" with no [1m] suffix even on a 1M window, so a session whose
+// context outgrows its assumed window proves the window is larger; every turn
+// of that session is then measured against the inferred window, not just the
+// turns past the old limit.
+type sessionWindows struct {
+	turns []windowTurn
+	peak  map[int]int // assumed window -> largest context seen against it
+}
+
+func (s *sessionWindows) add(provider, model string, ctx int) windowTurn {
+	window, exact := contextWindow(provider, model)
+	t := windowTurn{ctx: ctx, window: window, exact: exact}
+	s.turns = append(s.turns, t)
+	if s.peak == nil {
+		s.peak = map[int]int{}
+	}
+	s.peak[window] = max(s.peak[window], ctx)
+	return t
+}
+
+// resolve returns the window a turn is measured against. inferred is true when
+// the session's own context exceeded the assumed window; exact still reports
+// whether that assumed window came from the catalog, so an inferred catalog
+// session is not mistaken for a missing catalog match.
+func (s *sessionWindows) resolve(t windowTurn) (window int, exact, inferred bool) {
+	observed := s.peak[t.window]
+	if observed <= t.window {
+		return t.window, t.exact, false
+	}
+	for _, next := range []int{1_000_000, 2_000_000} {
+		if next > t.window && next >= observed {
+			return next, t.exact, true
+		}
+	}
+	return observed, t.exact, true
+}
+
+// dumbzone counts turns past the dumbzone line of their resolved window.
+func (s *sessionWindows) dumbzone(turns []windowTurn) int {
+	n := 0
+	for _, t := range turns {
+		if window, _, _ := s.resolve(t); t.ctx > int(dumbzoneFraction*float64(window)) {
+			n++
+		}
+	}
+	return n
 }
 
 func windowDays(sinceExpr, from, to string) float64 {

@@ -51,6 +51,9 @@ const (
 	provenanceChanged      = "changed_since"
 	provenanceMissing      = "target_missing"
 	provenanceUnfingerprnt = "not_fingerprinted"
+	// provenanceNotApplicable: an experiment toggles a change on and off, so
+	// there is no single applied edit whose presence needs proving.
+	provenanceNotApplicable = "not_applicable"
 )
 
 // attributionRung orders the methods. Higher is stronger. Used to pick the best

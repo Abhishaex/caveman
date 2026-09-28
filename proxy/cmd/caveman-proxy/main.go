@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -69,7 +70,10 @@ func main() {
 	case "usage":
 		runUsage(logger, os.Args[2:])
 	case "learn":
-		runLearn(logger, os.Args[2:])
+		// learn prints its result document on stdout; a failure has to reach
+		// stderr, which is the only stream the CLI surfaces when the child exits
+		// non-zero.
+		runLearn(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{ReplaceAttr: redact.SlogReplaceAttr})), os.Args[2:])
 	case "status":
 		// status prints one JSON document on stdout, which the CLI parses whole.
 		// Its diagnostics go to stderr so a config error cannot interleave a
@@ -745,6 +749,13 @@ func runLearn(logger *slog.Logger, args []string) {
 		sub = args[0]
 		args = args[1:]
 	}
+	if sub == "capabilities" {
+		// The CLI's autopilot probes this before an unattended scan: an older
+		// proxy ignores unknown flags, so it would silently write cavemem and
+		// the canonical report. Answered before the store opens, so it is cheap.
+		printJSON(learnCapabilities())
+		return
+	}
 	home := mustHome(logger)
 	spend := mustStore(logger, home)
 	defer spend.Close()
@@ -758,24 +769,48 @@ func runLearn(logger *slog.Logger, args []string) {
 
 	switch sub {
 	case "scan":
-		fmt.Fprintln(os.Stderr, "scanning local sessions (last 30d)…")
+		scope := "local sessions"
+		if picked := strings.Trim(strings.Join(sources, ","), ","); picked != "" {
+			scope = picked + " sessions"
+		}
+		fmt.Fprintf(os.Stderr, "scanning %s (last %s)…\n", scope, since)
 		// --retro is opt-in: without it the scan runs exactly as before. With it,
 		// both passes are independently bounded so a cold base scan cannot consume
 		// the child deadline before retro returns partial measured coverage.
 		retro := learnRetroOptions(args)
-		plan, err := spend.LearnScanFilteredWithRetro(sources, since, retro, repoFilter)
+		var plan store.LearnPlan
+		var err error
+		if hasArg(args, "--no-remember") {
+			// Unattended scans (autopilot) must not grow cavemem: sink titles
+			// embed changing counts, so every run would store a near-duplicate.
+			plan, err = spend.BuildLearnPlanFilteredWithRetro(cwd, sources, since, retro, repoFilter)
+		} else {
+			plan, err = spend.LearnScanFilteredWithRetro(sources, since, retro, repoFilter)
+		}
 		if err != nil {
 			fatalJSON(logger, err)
 		}
-		fmt.Fprintf(os.Stderr, "claude-code %d · codex %d · scoring…\n",
-			plan.SessionsBySource["claude"], plan.SessionsBySource["codex"])
+		// --reports-home keeps an unattended scan's report, snapshots and trend
+		// history apart from the canonical ones a user's own run writes.
+		reportsHome := argFlag(args, "--reports-home", home)
+		store.AttachLearnTrendHistory(&plan, reportsHome, time.Now())
+		counts := []string{}
+		for _, source := range slices.Sorted(maps.Keys(plan.SessionsBySource)) {
+			if n := plan.SessionsBySource[source]; n > 0 {
+				counts = append(counts, fmt.Sprintf("%s %d", source, n))
+			}
+		}
+		if len(counts) == 0 {
+			counts = append(counts, "no sessions")
+		}
+		fmt.Fprintf(os.Stderr, "%s · scoring…\n", strings.Join(counts, " · "))
 		if hasArg(args, "--write-report") {
-			out := argFlag(args, "--out", store.DefaultLearnReportPath(home))
+			out := argFlag(args, "--out", store.DefaultLearnReportPath(reportsHome))
 			if err := spend.WriteLearnHTML(plan, out); err != nil {
 				fatalJSON(logger, err)
 			}
 			generation := argFlag(args, "--write-report-token", "")
-			if _, err := spend.WriteLearnSidecars(home, plan, time.Now(), generation); err != nil {
+			if _, err := spend.WriteLearnSidecars(reportsHome, plan, time.Now(), generation); err != nil {
 				fatalJSON(logger, err)
 			}
 		}
@@ -787,6 +822,7 @@ func runLearn(logger *slog.Logger, args []string) {
 		if err != nil {
 			fatalJSON(logger, err)
 		}
+		store.AttachLearnTrendHistory(&plan, home, time.Now())
 		out := argFlag(args, "--out", store.DefaultLearnReportPath(home))
 		if err := spend.WriteLearnHTML(plan, out); err != nil {
 			fatalJSON(logger, err)
@@ -811,7 +847,7 @@ func runLearn(logger *slog.Logger, args []string) {
 		if sinkID == "" {
 			fatalJSON(logger, fmt.Errorf("usage: caveman-proxy learn apply <sink_id> [--dry-run]"))
 		}
-		plan, err := spend.BuildLearnPlan(cwd, sources, since)
+		plan, err := spend.BuildLearnPlanFilteredWithRetro(cwd, sources, since, store.RetroOptions{}, repoFilter)
 		if err != nil {
 			fatalJSON(logger, err)
 		}
@@ -840,8 +876,23 @@ func runLearn(logger *slog.Logger, args []string) {
 			fatalJSON(logger, err)
 		}
 		printJSON(simulation)
+	case "experiment":
+		runLearnExperiment(logger, spend, cwd, sources, args)
+	case "export":
+		runLearnExport(logger, spend, home, cwd, sources, since, args)
+	case "reconcile":
+		runLearnReconcile(logger, spend, cwd, sources, since, args)
 	default:
 		fatalJSON(logger, fmt.Errorf("unknown learn subcommand: %s", sub))
+	}
+}
+
+func learnCapabilities() map[string]any {
+	return map[string]any{
+		"schema":        "caveman.learn.capabilities.v1",
+		"no_remember":   true,
+		"reports_home":  true,
+		"memory_health": true,
 	}
 }
 
@@ -849,9 +900,10 @@ var positionalValueFlags = map[string]bool{
 	"--agent": true, "--behavior-budget-ms": true, "--build": true,
 	"--command": true, "--decision": true, "--exit-code": true,
 	"--fix-kind": true, "--note": true, "--out": true, "--path": true,
-	"--plan": true, "--port": true, "--recent": true, "--repo": true,
+	"--plan": true, "--port": true, "--recent": true, "--repo": true, "--reports-home": true,
 	"--retro-budget-ms": true, "--session": true, "--since": true,
 	"--sources": true, "--trial-id": true, "--write-report-token": true,
+	"--sink": true, "--usage-export": true,
 }
 
 func learnSinkPositionals(args []string) []string {

@@ -164,6 +164,7 @@ func scanLearnSessionMetricsUntil(sourceSet map[string]bool, since time.Time, re
 			}
 			metric := learnSessionMetric{Repo: refs[i].repo, Source: source.id(), Fingerprints: map[string]int{}}
 			seenUsage := map[string]bool{}
+			var windows sessionWindows
 			truncatedSessions[i] = source.scanSession(refs[i], since, func(event turnEvent) {
 				if event.sessionStart {
 					return
@@ -186,10 +187,7 @@ func scanLearnSessionMetricsUntil(sourceSet map[string]bool, since time.Time, re
 					if metric.Prefix == 0 {
 						metric.Prefix = event.ContextTotal
 					}
-					window, _ := contextWindow(event.ProviderKey, event.Model)
-					if event.ContextTotal > int(dumbzoneFraction*float64(window)) {
-						metric.Dumbzone++
-					}
+					windows.add(event.ProviderKey, event.Model, event.ContextTotal)
 				}
 				for _, payload := range event.TextPayloads {
 					for _, block := range segmentBlocks(payload) {
@@ -200,6 +198,7 @@ func scanLearnSessionMetricsUntil(sourceSet map[string]bool, since time.Time, re
 					}
 				}
 			}, deadline)
+			metric.Dumbzone = windows.dumbzone(windows.turns)
 			metrics[i] = metric
 		})
 		for i, metric := range metrics {

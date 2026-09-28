@@ -12,9 +12,11 @@ export type LearnTuiModel = {
   scope: string;
   sessions: string;
   diff?: string;
+  trend?: string[];
   status?: string;
   moves: LearnTuiMove[];
   protected?: string;
+  memory?: string;
   confirmed?: number;
   findings: number;
   report: string;
@@ -50,7 +52,7 @@ export function learnScoreBody(model: LearnTuiModel): string {
     ? dim(`${model.confirmed} fixes measured since you applied them — run caveman learn --all`)
     : undefined;
   if (model.score === null) {
-    return [model.sessions, ...(model.status ? [model.status] : []), ...(confirmed ? [confirmed] : [])].join("\n");
+    return [model.sessions, ...(model.status ? [model.status] : []), ...(model.trend ?? []).map(dim), ...(confirmed ? [confirmed] : [])].join("\n");
   }
   const score = Math.max(0, Math.min(100, Math.round(model.score)));
   return [
@@ -59,6 +61,7 @@ export function learnScoreBody(model: LearnTuiModel): string {
     dim(model.scope),
     model.sessions,
     ...(model.diff ? [amber(model.diff)] : []),
+    ...(model.trend ?? []).map(dim),
   ].join("\n");
 }
 
@@ -119,6 +122,7 @@ export async function renderLearnTui(model: LearnTuiModel): Promise<LearnTuiResu
   if (model.protected) {
     p.log.warn(`${bold("Protected")}  ${model.protected}`);
   }
+  if (model.memory) p.log.info(model.memory);
 
   const options: Array<{ value: LearnTuiAction; label: string; hint?: string }> = [];
   if (model.moves.length > 0) {

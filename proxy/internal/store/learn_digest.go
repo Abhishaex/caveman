@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -23,7 +24,7 @@ import (
 //
 // The rule is allowlist, not denylist: this file builds rows field by field from
 // scalars it names, so a future evidence key cannot smuggle content into an
-// export. It is user-initiated (`caveman learn export --digest`), never a
+// export. It is user-initiated (`caveman learn export`), never a
 // background upload — telemetry here is opt-in by decree.
 
 const learnDigestSchema = "caveman.learn.digest.v1"
@@ -169,12 +170,24 @@ func buildLearnDigest(plan LearnPlan) LearnDigest {
 }
 
 // digestSinkID strips the opaque suffix from identity-bearing sink ids. The
-// suffix is a content hash of user data (a repeated block, a procedure's step
-// sequence); the family is what the cloud needs, the hash is not.
+// suffix is a hash of user data (a repeated block, a procedure's step
+// sequence, a memory file's path); the family is what the cloud needs, the
+// hash is not.
+// digestFingerprint matches fileFingerprint's output: 8 hex characters.
+var digestFingerprint = regexp.MustCompile(`^[0-9a-f]{8}$`)
+
 func digestSinkID(sinkID string) string {
 	for _, prefix := range []string{"recurring_context:repaste:", "procedure_repeat:", "learning_loop:"} {
 		if strings.HasPrefix(sinkID, prefix) {
 			return strings.TrimSuffix(prefix, ":") + ":*"
+		}
+	}
+	// memory_health:<kind>:<scope>: a file or memory-dir path fingerprint is
+	// stripped; a named scope (duplicate_rules:claude) is not user data and
+	// keeps distinct findings distinct.
+	if rest, ok := strings.CutPrefix(sinkID, "memory_health:"); ok {
+		if kind, scope, ok := strings.Cut(rest, ":"); ok && digestFingerprint.MatchString(scope) {
+			return "memory_health:" + kind + ":*"
 		}
 	}
 	return sinkID

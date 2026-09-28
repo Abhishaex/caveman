@@ -36,6 +36,7 @@ import { createHash, createHmac, createPublicKey, randomBytes, randomUUID, verif
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
 import { PROFILES, type AgentProfile } from "./agents.generated.js";
+import { autopilotStatusText, claimLearnNudge, confirmLearnNudge, maybeSpawnAutopilot, runAutopilot } from "./learn-autopilot.js";
 import {
   BINARY_RELEASE,
   BINARY_RELEASE_BASE_DEFAULT,
@@ -60,6 +61,7 @@ import {
 } from "./agent-mcp.js";
 import { portableInvocation } from "./portable-command.js";
 import { hardenedGitArgs, hardenedGitEnv } from "./git-safe.js";
+import { learnTrendLines, learnTrendTable, type LearnTrends } from "./learn-trends.js";
 import { publishedForwardHeadersOf, publishedUpstreamsOf, trimTrailingSlashes, unforwardedProviderHeaders, verifiedProviderRoute, type PublishedUpstreams } from "./provider-routing.js";
 import { openClawRequestCompatibilityIssue, preserveOpenClawProviderCompat } from "./openclaw-provider-compat.js";
 import { parseStatsOptions, renderStatsSummary, STATS_HELP, STATS_USAGE, type StatsCLIReport } from "./stats-cli.js";
@@ -14802,6 +14804,7 @@ async function nativeHook(argv: string[]) {
   if (sessionId) entry.host_session_id = sessionId;
   if (toolName) entry.tool_name = toolName;
   if (cwd) entry.cwd_sha256 = `sha256:${createHash("sha256").update(cwd).digest("hex")}`;
+  if (normalizedEvent === "SessionEnd") maybeSpawnAutopilot();
   // SessionStart revives a missing local proxy, but native routing points every
   // LATER turn of the session at that proxy too. Current proxies never expire,
   // but crashes and older binaries can still leave a dead base URL. A plain
@@ -14862,10 +14865,22 @@ async function nativeHook(argv: string[]) {
   // it before provider forwarding. Generated structure/order are byte-stable.
   const stableContext = [coreContext, marker].filter(Boolean).join("\n");
   const compactContext = [coreContext, runtimeContext, marker].filter(Boolean).join("\n");
-  if (normalizedEvent === "SessionStart" && agent !== "hermes" && stableContext) {
+  // systemMessage is the user-visible channel on Claude/Codex/Gemini SessionStart;
+  // additionalContext would put the nudge in model context instead.
+  // Under the fast hook the parent owns the token and confirms after relaying
+  // our stdout, since it may still drop the output on its own timeout.
+  const relayedToken = boundedHookString(process.env.CAVEMAN_LEARN_NUDGE_TOKEN);
+  const learnNudgeToken = relayedToken || randomUUID();
+  const learnNudge = normalizedEvent === "SessionStart" && (agent === "claude" || agent === "codex" || agent === "gemini")
+    ? claimLearnNudge(boundedHookString(event.source), learnNudgeToken)
+    : undefined;
+  if (normalizedEvent === "SessionStart" && agent !== "hermes" && (stableContext || learnNudge)) {
     process.stdout.write(JSON.stringify({
-      hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: stableContext },
-    }));
+      ...(learnNudge ? { systemMessage: learnNudge } : {}),
+      ...(stableContext ? { hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: stableContext } } : {}),
+    }), () => {
+      if (learnNudge && !relayedToken) confirmLearnNudge(learnNudgeToken);
+    });
   } else if (normalizedEvent === "PostCompact" && agent !== "hermes" && compactContext) {
     process.stdout.write(JSON.stringify({
       hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: compactContext },
@@ -16367,6 +16382,7 @@ type LearnPlan = {
   basis: "inferred";
   sessions_scanned?: number;
   sessions_by_source?: Record<string, number>;
+  window?: { from?: string; to?: string; since?: string };
   cave_score: { score: number; basis: string; scope?: string };
   sinks: LearnSink[];
   retro?: LearnRetro;
@@ -16374,6 +16390,7 @@ type LearnPlan = {
   confirmed?: LearnConfirmed[];
   portfolio?: LearnPortfolio;
   repos?: LearnRepo[];
+  trends?: LearnTrends;
 };
 
 // LearnRetro mirrors the proxy's optional `retro` block (learn scan --retro):
@@ -16402,8 +16419,12 @@ type LearnRetro = {
 
 type LearnDiff = { days: number; gone: number; back: number; fresh: number };
 
-const LEARN_EMPTY =
-  "no Claude Code or Codex sessions found in the last 30d — the plan needs a block repeated across ≥3 sessions; run `caveman claude` a few times, then `caveman learn`";
+// learnEmpty names the window the proxy actually scanned (plan.window.since;
+// older proxies omit it and always scanned 30d).
+function learnEmpty(plan: LearnPlan): string {
+  const since = plan.window?.since || "30d";
+  return `no Claude Code, Codex, Gemini CLI, opencode or aider sessions found in the last ${since} — the plan needs a block repeated across ≥3 sessions; run \`caveman claude\` a few times, then \`caveman learn\``;
+}
 const LEARN_DETAILED_NEXT =
   "next:  caveman tools skills install caveman-learn   (review + apply, with consent)  ·  preview one: caveman learn apply <sink_id> --dry-run";
 const LEARN_ALL_FOOTER = [
@@ -16492,13 +16513,22 @@ export type LearnTuiViewModel = {
   scope: string;
   sessions: string;
   diff?: string;
+  trend?: string[];
   status?: string;
   moves: LearnSummaryMove[];
   protected?: string;
+  memory?: string;
   confirmed?: number;
   findings: number;
   report: string;
 };
+
+// learnMemoryHealthLine points at the memory & rules doctor findings in one
+// line; they carry no token rate, so they rarely make the top moves.
+function learnMemoryHealthLine(plan: LearnPlan): string | undefined {
+  const count = plan.sinks.filter((sink) => sink.sink_id.startsWith("memory_health:")).length;
+  return count > 0 ? `memory & rules  ${count} finding${count === 1 ? "" : "s"} — ${invokedAs()} learn --all` : undefined;
+}
 
 export function learnSummaryMoves(plan: LearnPlan): LearnSummaryMove[] {
   const moves: LearnSummaryMove[] = [];
@@ -16611,8 +16641,10 @@ export function buildLearnTuiModel(
   const protectedSink = plan.sinks.find((sink) => sink.class === "load_bearing");
   const confirmed = plan.confirmed?.length ?? 0;
   const diffText = learnDiffText(options.diff);
+  const trend = learnTrendLines(plan.trends);
+  const memory = learnMemoryHealthLine(plan);
   const status = sessions === 0
-    ? LEARN_EMPTY
+    ? learnEmpty(plan)
     : !recurring
       ? `${sessions} sessions scanned · no block repeated across ≥3 sessions yet — keep running \`${invokedAs()} claude\`, then re-run \`${invokedAs()} learn\``
       : undefined;
@@ -16621,11 +16653,13 @@ export function buildLearnTuiModel(
     scope: "local setup · inferred · not billed spend · separate from org Cave Score",
     sessions: learnSourceLine(plan, sessions),
     ...(diffText ? { diff: diffText } : {}),
+    ...(trend.length ? { trend } : {}),
     ...(status ? { status } : {}),
     moves: learnSummaryMoves(plan),
     ...(protectedSink
       ? { protected: `${protectedSink.title.replace(/^Your\s+/i, "")} · included in score, never auto-fixed${learnMeasuredPrefixSuffix(protectedSink)}` }
       : {}),
+    ...(memory ? { memory } : {}),
     ...(confirmed > 0 ? { confirmed } : {}),
     findings: plan.sinks.length,
     report: options.report ?? learnReportPath(),
@@ -16636,7 +16670,7 @@ export function buildLearnTuiModel(
 // what a million input tokens ACTUALLY cost after the user's own cache mix.
 // The multiplier is the one number that decides whether every other finding in
 // the report is expensive or trivial, so it earns a line above the moves.
-function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean): string[] {
+function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean, full = true): string[] {
   if (!spend) return [];
   const lines: string[] = [];
   const currency = spend.currency || "USD";
@@ -16654,8 +16688,15 @@ function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean)
   if (components.length > 0 && spend.usd > 0) {
     lines.push(components.map((component) => `${component.key.replace("_", " ")} ${Math.round(component.share_pct ?? 0)}%`).join("  ·  "));
   }
-  for (const row of spend.unpriced ?? []) {
-    lines.push(`unpriced  ${row.provider}/${row.model}  ${humanTokens(row.tokens)} tokens excluded — total is a floor`);
+  const unpriced = spend.unpriced ?? [];
+  if (!full && unpriced.length > 1) {
+    // Compact view: one line; --all, --md, JSON and HTML keep every model.
+    const tokens = unpriced.reduce((sum, row) => sum + row.tokens, 0);
+    lines.push(`unpriced  ${unpriced.length} models · ${humanTokens(tokens)} tokens excluded — total is a floor (${invokedAs()} learn --all lists them)`);
+  } else {
+    for (const row of unpriced) {
+      lines.push(`unpriced  ${row.provider}/${row.model}  ${humanTokens(row.tokens)} tokens excluded — total is a floor`);
+    }
   }
   if (lines.length > 0) {
     lines.push("subscription plans have no marginal cost; the figure is then the API-equivalent value of the tokens");
@@ -16676,13 +16717,16 @@ export function renderLearnPlan(
   const confirmedLines = renderLearnConfirmed(plan.confirmed, markdown);
 
   if (sessions === 0) {
-    lines.push(LEARN_EMPTY);
+    lines.push(learnEmpty(plan));
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
   } else if (!recurring) {
     if (plan.sinks.length > 0) {
       lines.push(...(verbose ? renderLearnDetailedRows(plan, markdown) : ["top moves", ...renderLearnSummaryRows(plan)]), "");
+      const memory = verbose ? undefined : learnMemoryHealthLine(plan);
+      if (memory) lines.push(memory, "");
     }
     lines.push(`${sessions} sessions scanned · no block repeated across ≥3 sessions yet — keep running \`caveman claude\`, then re-run \`caveman learn\``);
+    lines.push(...(verbose ? [] : learnTrendLines(plan.trends)));
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
   } else {
     lines.push(markdown
@@ -16700,10 +16744,13 @@ export function renderLearnPlan(
     }
     const diffText = learnDiffText(options.diff);
     if (diffText) lines.push(diffText);
-    const spendLines = renderLearnSpendLines(plan.spend, markdown);
+    lines.push(...(verbose ? [] : learnTrendLines(plan.trends)));
+    const spendLines = renderLearnSpendLines(plan.spend, markdown, verbose);
     if (spendLines.length > 0) lines.push("", ...spendLines);
     if (confirmedLines.length > 0) lines.push("", ...confirmedLines);
     if (verbose) {
+      const trendTable = learnTrendTable(plan.trends, markdown);
+      if (trendTable.length > 0) lines.push("", ...trendTable);
       lines.push("", ...renderLearnDetailedRows(plan, markdown), "", LEARN_DETAILED_NEXT);
     } else {
       const protectedSink = plan.sinks.find((sink) => sink.class === "load_bearing");
@@ -16712,6 +16759,8 @@ export function renderLearnPlan(
         const title = protectedSink.title.replace(/^Your\s+/i, "");
         lines.push(`protected  ${title} · included in score, never auto-fixed${learnMeasuredPrefixSuffix(protectedSink)}`);
       }
+      const memory = learnMemoryHealthLine(plan);
+      if (memory) lines.push(memory);
       lines.push(
         "",
         `next:  ${invokedAs()} learn implement   fix with Claude Code or Codex; asks before every edit`,
@@ -17053,6 +17102,38 @@ export function renderExperimentReport(raw: Record<string, any>): string {
   return `${out.join("\n")}\n`;
 }
 
+// renderExperiments prints start/arm/stop (one experiment) or list (many):
+// label, state, and the arm currently running.
+export function renderExperiments(raw: Record<string, any> | Record<string, any>[]): string {
+  const experiments = Array.isArray(raw) ? raw : [raw];
+  if (experiments.length === 0) return "no experiments yet — start one: caveman learn experiment start <label>\n";
+  return experiments.map((exp) => {
+    const arms = Array.isArray(exp.arms) ? (exp.arms as Record<string, any>[]) : [];
+    const open = arms.find((arm) => !arm.ended_at);
+    const state = exp.stopped_at ? "stopped" : open ? `arm ${String(open.arm)} since ${String(open.started_at)}` : "no open arm";
+    const sink = exp.sink_id ? dim(`  sink ${String(exp.sink_id)}${exp.fix_kind ? ` · ${String(exp.fix_kind)}` : ""}`) : "";
+    return `${bold(String(exp.label ?? ""))}  ${state}  ${arms.length} interval${arms.length === 1 ? "" : "s"}${sink}\n`;
+  }).join("");
+}
+
+// renderLearnDigest names the file to inspect; the digest itself is the file.
+export function renderLearnDigest(raw: Record<string, any>): string {
+  return `digest written: ${String(raw.path ?? "")}\n${dim(String(raw.summary ?? ""))}\ninspect it before sharing; --json prints it\n`;
+}
+
+// renderLearnReconcile prints measured vs billed per model. Coverage is a token
+// comparison, never a savings claim, so there is no money column.
+export function renderLearnReconcile(raw: Record<string, any>): string {
+  const rows = Array.isArray(raw.models) ? (raw.models as Record<string, any>[]) : [];
+  const out: string[] = [bold(`reconcile  ${Number(raw.coverage_pct ?? 0).toFixed(1)}% of billed tokens seen locally`)];
+  for (const row of rows) {
+    out.push(`  ${String(row.model ?? "")}  billed ${humanTokens(Number(row.billed_tokens ?? 0))}  measured ${humanTokens(Number(row.measured_tokens ?? 0))}  ${Number(row.coverage_pct ?? 0).toFixed(1)}%`);
+  }
+  out.push(`  unattributed ${humanTokens(Number(raw.unattributed_tokens ?? 0))} tokens`);
+  for (const caveat of (raw.caveats ?? []) as string[]) out.push(dim(`  · ${caveat}`));
+  return `${out.join("\n")}\n`;
+}
+
 function learnUsage(): void {
   console.log(`${invokedAs()} learn [--all|--plain|--json|--md] [--since 30d] [--sources claude,codex,gemini,opencode,aider]
   default       interactive setup score + grouped top moves
@@ -17061,6 +17142,7 @@ function learnUsage(): void {
   --json|--md   machine-readable or detailed Markdown output
   implement     open Claude Code or Codex to review and fix findings
   apply         prepare one finding for consent-gated editing
+  autopilot     [status|on|off] background refresh after sessions end
 
   savings       what applied fixes returned, grouped by how it was measured
   experiment    prove a change with an on/off holdout over your own sessions
@@ -17079,6 +17161,19 @@ function learnUsage(): void {
                 filter sessions before analysis`);
 }
 
+// learnAutopilot: status/on/off for the SessionEnd background refresh. `run`
+// is the detached child the native hook spawns (see learn-autopilot.ts).
+function learnAutopilot(rest: string[]): void {
+  const sub = rest[0] ?? "status";
+  if (sub === "run") {
+    process.exitCode = runAutopilot(proxyBin());
+    return;
+  }
+  if (sub === "on" || sub === "off") mutateRawConfig((out) => { out.learnAutopilot = sub === "on"; });
+  else if (sub !== "status") return commandUsage("learn autopilot [status|on|off]");
+  process.stdout.write(autopilotStatusText());
+}
+
 function learnImplementUsage(): void {
   console.log(`${invokedAs()} learn implement [claude|codex] [--prompt "<focus>"]
   opens an interactive agent with the current local learn report
@@ -17092,7 +17187,7 @@ function learnImplementPrompt(focus: string): string {
     "Run `caveman learn report --json`; if no current report exists, run `caveman learn --json` once and retry. Then present a short list of actionable findings.",
     "Work through selected fixes one at a time. Never edit load_bearing findings.",
     "Show the proposed diff and before → after token count, ask before every edit, apply only approved changes, then verify the reduction and any recall path.",
-    "Keep every local savings claim labeled inferred and never attach currency.",
+    "Keep every local savings claim labeled inferred. Attach currency only where the report itself carries it (the spend block and priced savings rows), with that block's framing: window-bounded, never projected, never verified.",
   ];
   if (focus) lines.push(`User focus: ${focus}`);
   return lines.join(" ");
@@ -17189,20 +17284,19 @@ async function learn(rest: string[]) {
   const sub = rest[0];
   if (sub === "--help" || sub === "-h" || sub === "help") return learnUsage();
   if (sub === "implement") return learnImplement(rest.slice(1));
-  if (sub === "export" || sub === "reconcile") {
-    // Both are inspect-before-you-act surfaces, so they stay machine-readable:
-    // the digest is a file the user reads before deciding to share it, and a
-    // reconciliation is a table, not a headline.
-    process.stdout.write(formatLearnProxyJSON(proxyExecLearn(["learn", ...rest], false)));
-    return;
-  }
-  if (sub === "experiment") {
+  if (sub === "autopilot") return learnAutopilot(rest.slice(1));
+  if (sub === "export" || sub === "reconcile" || sub === "experiment") {
     const rawText = proxyExecLearn(["learn", ...rest], false);
-    if (rest.includes("--json") || !["report"].includes(String(rest[1] ?? ""))) {
+    if (rest.includes("--json")) {
       process.stdout.write(formatLearnProxyJSON(rawText));
       return;
     }
-    process.stdout.write(renderExperimentReport(JSON.parse(rawText) as Record<string, any>));
+    const parsed = JSON.parse(rawText);
+    const render = sub === "export" ? renderLearnDigest
+      : sub === "reconcile" ? renderLearnReconcile
+      : rest[1] === "report" ? renderExperimentReport
+      : renderExperiments;
+    process.stdout.write(render(parsed));
     return;
   }
   if (sub === "savings") {
@@ -17244,7 +17338,12 @@ async function learn(rest: string[]) {
   if (tui) {
     const learnTui = await import("./learn-tui.js");
     const progress = learnTui.createLearnProgress();
-    progress.start("Reading Claude Code and Codex sessions");
+    const flag = (name: string) => {
+      const at = forwarded.findIndex((arg) => arg === name || arg.startsWith(`${name}=`));
+      if (at < 0) return undefined;
+      return forwarded[at]!.includes("=") ? forwarded[at]!.split("=")[1] : forwarded[at + 1];
+    };
+    progress.start(`Reading ${flag("--sources") ?? "local agent"} sessions from the last ${flag("--since") ?? "30d"}`);
     try {
       const scanRaw = await proxyExecLearnAsync(
         ["learn", "scan", "--write-report", "--write-report-token", reportToken, ...forwarded],

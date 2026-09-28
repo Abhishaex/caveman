@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -330,8 +331,10 @@ func roundRate(v float64) float64 {
 	return float64(int64(v*10_000+0.5)) / 10_000
 }
 
+// roundPct rounds half away from zero; the old +0.5 truncation turned an exact
+// -50% experiment delta into -49.9.
 func roundPct(v float64) float64 {
-	return float64(int64(v*10+0.5)) / 10
+	return math.Round(v*10) / 10
 }
 
 func roundMultiplier(v float64) float64 {

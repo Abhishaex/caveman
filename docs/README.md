@@ -50,6 +50,8 @@ this repository. Hosted-service implementation details are outside its scope.
 
 - [SDKs and packages](./technical/sdks-and-packages.md): TypeScript and Python
   SDKs, shared contracts and schemas, provider catalog, and benchmark tooling
+- [caveman learn](./technical/learn.md): local setup profiler, Setup Score,
+  sinks, autopilot, and consent-gated fixes
 - [Accounting and evidence](./technical/accounting-and-evidence.md): `inferred`,
   provider-reported, benchmark, and `verified` labels
 - [Security and privacy](./technical/security-and-privacy.md): data flows and

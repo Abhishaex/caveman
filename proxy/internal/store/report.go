@@ -506,6 +506,27 @@ func topSinks(sinks []Sink) []Sink {
 	return sinks
 }
 
+// reportMemoryFindings lists every memory & rules doctor finding. Most carry no
+// token rate, so on a busy machine topSinks would never reach them.
+func reportMemoryFindings(sinks []Sink) []Sink {
+	var out []Sink
+	for _, s := range sinks {
+		if strings.HasPrefix(s.SinkID, "memory_health:") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// memoryHealthKind is the detector name from memory_health:<kind>:<scope>.
+func memoryHealthKind(sinkID string) string {
+	parts := strings.SplitN(sinkID, ":", 3)
+	if len(parts) < 2 {
+		return sinkID
+	}
+	return strings.ReplaceAll(parts[1], "_", " ")
+}
+
 func sumPerDay(sinks []Sink) int64 {
 	var total int64
 	for _, s := range sinks {
@@ -616,6 +637,9 @@ var learnTemplate = template.Must(template.New("learn").Funcs(template.FuncMap{
 	"human":         humanTokens,
 	"observedBasis": observedTokenBasis,
 	"topSinks":      topSinks,
+	"memoryHealth":  reportMemoryFindings,
+	"memoryKind":    memoryHealthKind,
+	"trends":        learnTrendsHTML,
 	"classClass": func(class string) string {
 		switch class {
 		case classReducible:
@@ -851,6 +875,8 @@ ul.caveats li{margin:6px 0}
   {{end}}
 </div>
 
+{{trends .Plan.Trends}}
+
 <h2>Token Sinks</h2>
 <p class="note">Ranked by daily-equivalent magnitude. Behavioral token totals remain historical observations, never rates. Open a row for evidence and suggested fix. Load-bearing rows are listed for honesty and never touched.</p>
 {{if .Plan.Sinks}}
@@ -872,9 +898,17 @@ ul.caveats li{margin:6px 0}
 </details>
 {{else}}<div class="empty">No token sinks found yet. Scan more sessions, then come back.</div>{{end}}
 
+{{with memoryHealth .Plan.Sinks}}
+<h2>Memory &amp; rules health</h2>
+<p class="note">Read-only checks of the instruction and memory files your agents load. Every finding is listed here ({{len .}}); most carry no token rate, so they rank low among the sinks above.</p>
+<div class="props">
+{{range .}}<div class="prop"><span class="k">{{memoryKind .SinkID}}</span><span>{{.Title}}{{if .Suggestion}}<br><span class="kv">{{.Suggestion}}</span>{{end}}{{with index .Evidence "path"}}<br><span class="mono">{{.}}</span>{{end}}</span><span class="v">{{if .TokensPerTurn}}{{comma .TokensPerTurn}} / turn{{end}}</span></div>
+{{end}}</div>
+{{end}}
+
 {{with .Plan.ContextDepth}}
 <h2>Session Context Depth</h2>
-<p class="note">Each session's peak context as a share of its model's window, from provider-counted usage in {{plural .Sessions "session"}}. Window sizes are assumed per-provider defaults. This measures how deep sessions run, a quality and habit signal, not a dollar figure. Deep sessions re-send the whole history every turn, and quality degrades well before the window limit: compact or split before half the window, or offload recurring context to cavemem.</p>
+<p class="note">Each session's peak context as a share of its model's window, from provider-counted usage in {{plural .Sessions "session"}}. Window sizes come from the model catalog, else a per-provider default; a session whose context outgrows that default is measured against a window inferred from its observed context (1M, then 2M). This measures how deep sessions run, a quality and habit signal, not a dollar figure. Deep sessions re-send the whole history every turn, and quality degrades well before the window limit: compact or split before half the window, or offload recurring context to cavemem.</p>
 <div class="dcard">
   <div class="kicker">Session health · not a cost figure</div>
   <div class="dstats">
