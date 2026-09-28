@@ -24,7 +24,7 @@ export type AutopilotState = {
   proxy_caps?: { key: string; ok: boolean };
 };
 
-type Nudge = { line: string; sink_ids: string[]; created_at: string; announced_at?: string; claimed_at?: string; reshown?: boolean };
+type Nudge = { line: string; sink_ids: string[]; created_at: string; announced_at?: string; claimed_at?: string; reshown?: boolean; token?: string };
 
 const ANNOUNCE_CLASSES = new Set(["reducible", "recurring_context"]);
 const ANNOUNCE_MIN_TOKENS_PER_TURN = 2000;
@@ -331,31 +331,45 @@ export function runAutopilot(proxyBin: string): number {
   }
 }
 
-// Hook side (SessionStart). Claims the pending nudge with one atomic rename,
-// so concurrent session starts announce it once. The claim parks it in-flight;
-// confirmLearnNudge marks it announced only after the line was written to the
-// host. An in-flight nudge left unconfirmed for NUDGE_RESHOW_MS is re-shown
-// once. Only fresh sessions (startup / clear) announce; resume, compact and
-// fork never do.
-export function claimLearnNudge(source: string | undefined): string | undefined {
+// Hook side (SessionStart). At most one nudge is in flight at a time:
+//  - an unconfirmed in-flight nudge younger than NUDGE_RESHOW_MS belongs to
+//    another session start, so a pending newer nudge waits behind it;
+//  - an older one is re-shown once (reshown), and dropped after that;
+//  - otherwise the pending nudge is claimed with one atomic rename.
+// The in-flight record carries the claimer's token; confirmLearnNudge(token)
+// marks it announced only for that claimer, once the line reached the host.
+// Only fresh sessions (startup / clear) announce; resume, compact and fork
+// never do.
+export function claimLearnNudge(source: string | undefined, token: string): string | undefined {
   if (source !== "startup" && source !== "clear") return undefined;
   try {
     if (!autopilotEnabled().enabled) return undefined;
     const paths = autopilotPaths();
     const claimed = `${paths.inflight}.${process.pid}.claim`;
     let nudge: Nudge | undefined;
-    try {
+    const held = readJson<Nudge>(paths.inflight);
+    if (held) {
+      const age = Date.now() - Date.parse(held.claimed_at ?? "");
+      if (Number.isFinite(age) && age < NUDGE_RESHOW_MS) return undefined;
+      if (!held.reshown) {
+        renameSync(paths.inflight, claimed); // one concurrent re-claimer wins
+        nudge = { ...held, reshown: true };
+      } else {
+        try { unlinkSync(paths.inflight); } catch { /* another session dropped it */ }
+      }
+    }
+    if (!nudge) {
       renameSync(paths.nudge, claimed);
       nudge = readJson<Nudge>(claimed);
-    } catch {
-      const stale = readJson<Nudge>(paths.inflight);
-      if (!stale || stale.reshown || !(Date.now() - Date.parse(stale.claimed_at ?? "") >= NUDGE_RESHOW_MS)) return undefined;
-      renameSync(paths.inflight, claimed);
-      nudge = { ...stale, reshown: true };
     }
+    if (!nudge || typeof nudge.line !== "string" || !nudge.line) {
+      try { unlinkSync(claimed); } catch { /* best effort */ }
+      return undefined;
+    }
+    // In-flight first, then drop the claim file: a failed write must not lose
+    // the line, it only forfeits the re-show.
+    try { writeJson(paths.inflight, { ...nudge, token, claimed_at: new Date().toISOString() }); } catch { /* shown once, unconfirmable */ }
     try { unlinkSync(claimed); } catch { /* best effort */ }
-    if (!nudge || typeof nudge.line !== "string" || !nudge.line) return undefined;
-    writeJson(paths.inflight, { ...nudge, claimed_at: new Date().toISOString() });
     return nudge.line.replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, 300);
   } catch {
     return undefined;
@@ -363,12 +377,14 @@ export function claimLearnNudge(source: string | undefined): string | undefined 
 }
 
 // confirmLearnNudge runs once the claimed line has reached the host's stdout.
-export function confirmLearnNudge(): void {
+// It only confirms the in-flight record this claimer's token owns.
+export function confirmLearnNudge(token: string): void {
   try {
     const paths = autopilotPaths();
     const nudge = readJson<Nudge>(paths.inflight);
+    if (!nudge || !token || nudge.token !== token) return;
     unlinkSync(paths.inflight);
-    if (nudge) writeJson(paths.announced, { ...nudge, announced_at: new Date().toISOString() });
+    writeJson(paths.announced, { ...nudge, announced_at: new Date().toISOString() });
   } catch { /* status only */ }
 }
 

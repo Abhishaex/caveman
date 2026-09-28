@@ -385,3 +385,49 @@ test("a proxy without learn capabilities never scans; the probe is cached per bi
     assert.equal(box.state().last_error, undefined);
   } finally { box.cleanup(); }
 });
+
+test("claims are token-owned: a newer nudge waits behind an unconfirmed one, and only its claimer confirms", async () => {
+  const home = mkdtempSync(join(tmpdir(), "cave-nudge-token-"));
+  const saved = { CAVEMAN_HOME: process.env.CAVEMAN_HOME, CAVEMAN_LEARN_AUTOPILOT: process.env.CAVEMAN_LEARN_AUTOPILOT };
+  process.env.CAVEMAN_HOME = join(home, ".caveman");
+  process.env.CAVEMAN_LEARN_AUTOPILOT = "1";
+  try {
+    const { claimLearnNudge, confirmLearnNudge } = await import(join(dist, "learn-autopilot.js"));
+    const runtime = join(home, ".caveman", "runtime");
+    mkdirSync(runtime, { recursive: true });
+    const nudge = join(runtime, "learn-autopilot-nudge.json");
+    const inflight = join(runtime, "learn-autopilot-nudge.inflight.json");
+    const announced = join(runtime, "learn-autopilot-announced.json");
+    const put = (line) => writeFileSync(nudge, JSON.stringify({ line, sink_ids: [], created_at: "x" }));
+    const age = (minutes) => {
+      const record = JSON.parse(readFileSync(inflight, "utf8"));
+      writeFileSync(inflight, JSON.stringify({ ...record, claimed_at: new Date(Date.now() - minutes * 60_000).toISOString() }));
+    };
+
+    // Scenario 1: A claims N1 and its output is lost. N2 arrives; B must wait.
+    put("N1");
+    assert.equal(claimLearnNudge("startup", "A"), "N1");
+    put("N2");
+    assert.equal(claimLearnNudge("startup", "B"), undefined, "N2 waits behind unconfirmed N1");
+    assert.ok(existsSync(nudge), "N2 still pending");
+    age(11);
+    assert.equal(claimLearnNudge("startup", "C"), "N1", "N1 gets its one re-show first");
+
+    // Scenario 2: A's late confirm must not confirm C's re-show.
+    confirmLearnNudge("A");
+    assert.ok(existsSync(inflight) && !existsSync(announced), "stale token confirmed nothing");
+    confirmLearnNudge("C");
+    assert.ok(!existsSync(inflight));
+    assert.equal(JSON.parse(readFileSync(announced, "utf8")).line, "N1");
+    assert.equal(claimLearnNudge("startup", "D"), "N2", "then N2");
+
+    // A failed in-flight write still shows the line (and never loses it).
+    confirmLearnNudge("D");
+    mkdirSync(inflight);
+    put("N3");
+    assert.equal(claimLearnNudge("startup", "E"), "N3");
+  } finally {
+    for (const [key, value] of Object.entries(saved)) value === undefined ? delete process.env[key] : (process.env[key] = value);
+    rmSync(home, { recursive: true, force: true });
+  }
+});

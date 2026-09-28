@@ -3,7 +3,7 @@ import { appendFileSync, chmodSync, lstatSync, mkdirSync, readFileSync, realpath
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { connect as netConnect } from "node:net";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import { hardenedGitArgs, hardenedGitEnv } from "./git-safe.js";
@@ -404,12 +404,13 @@ const DELEGATE_TIMEOUT_MS = 3000;
 
 function delegateToFullCLI(raw: Buffer, agent: NativeAgent): boolean {
   const cli = join(dirname(fileURLToPath(import.meta.url)), "index.js");
-  const result = spawnSync(process.execPath, [cli, "native-hook", agent], { input: raw, maxBuffer: 3 * 1024 * 1024, env: { ...process.env, CAVEMAN_LEARN_NUDGE_RELAYED: "1" }, timeout: DELEGATE_TIMEOUT_MS });
+  const nudgeToken = randomUUID();
+  const result = spawnSync(process.execPath, [cli, "native-hook", agent], { input: raw, maxBuffer: 3 * 1024 * 1024, env: { ...process.env, CAVEMAN_LEARN_NUDGE_TOKEN: nudgeToken }, timeout: DELEGATE_TIMEOUT_MS });
   if (!result.error && result.status === 0) {
     // The child left any learn nudge in-flight; it is announced only once it
     // actually reaches the host, so a delegate timeout lets it re-show once.
     const nudged = result.stdout?.includes('"systemMessage"') === true;
-    if (result.stdout?.length) process.stdout.write(result.stdout, () => { if (nudged) confirmLearnNudge(); });
+    if (result.stdout?.length) process.stdout.write(result.stdout, () => { if (nudged) confirmLearnNudge(nudgeToken); });
     if (result.stderr?.length) process.stderr.write(result.stderr);
     return true;
   }

@@ -14535,17 +14535,19 @@ async function nativeHook(argv: string[]) {
   const compactContext = [coreContext, runtimeContext, marker].filter(Boolean).join("\n");
   // systemMessage is the user-visible channel on Claude/Codex/Gemini SessionStart;
   // additionalContext would put the nudge in model context instead.
+  // Under the fast hook the parent owns the token and confirms after relaying
+  // our stdout, since it may still drop the output on its own timeout.
+  const relayedToken = boundedHookString(process.env.CAVEMAN_LEARN_NUDGE_TOKEN);
+  const learnNudgeToken = relayedToken || randomUUID();
   const learnNudge = normalizedEvent === "SessionStart" && (agent === "claude" || agent === "codex" || agent === "gemini")
-    ? claimLearnNudge(boundedHookString(event.source))
+    ? claimLearnNudge(boundedHookString(event.source), learnNudgeToken)
     : undefined;
   if (normalizedEvent === "SessionStart" && agent !== "hermes" && (stableContext || learnNudge)) {
     process.stdout.write(JSON.stringify({
       ...(learnNudge ? { systemMessage: learnNudge } : {}),
       ...(stableContext ? { hookSpecificOutput: { hookEventName: normalizedEvent, additionalContext: stableContext } } : {}),
     }), () => {
-      // Under the fast hook the parent confirms after relaying our stdout: it
-      // may still drop the output on its own timeout.
-      if (learnNudge && !process.env.CAVEMAN_LEARN_NUDGE_RELAYED) confirmLearnNudge();
+      if (learnNudge && !relayedToken) confirmLearnNudge(learnNudgeToken);
     });
   } else if (normalizedEvent === "PostCompact" && agent !== "hermes" && compactContext) {
     process.stdout.write(JSON.stringify({

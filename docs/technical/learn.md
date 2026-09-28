@@ -180,11 +180,13 @@ Rules:
   `startup` or `clear`; never on `resume`, `compact` or `fork`. It is
   delivered as a user-visible `systemMessage`, not model context.
 - Claimed with one atomic rename, so concurrent sessions announce it once. The
-  claim parks it in `runtime/learn-autopilot-nudge.inflight.json`; it counts as
-  announced only after the line is written to the host (the fast hook confirms
-  after relaying the delegated output). If that never happens, for example the
-  delegate hit its 3 s timeout, it is shown once more after 10 minutes, never
-  twice.
+  claim parks it in `runtime/learn-autopilot-nudge.inflight.json` with the
+  claimer's token; it counts as announced only when that claimer confirms,
+  after the line was written to the host (the fast hook owns the token and
+  confirms after relaying the delegated output). At most one nudge is in flight:
+  a newer nudge waits behind an unconfirmed one. An unconfirmed nudge, for
+  example after the delegate hit its 3 s timeout, is shown once more after 10
+  minutes, never twice.
 - Suppressed when autopilot is disabled.
 
 ## Setup Score
@@ -434,6 +436,9 @@ into one line; `--all`, `--md`, JSON and the HTML report list each model.
 
 ## Limits and known gaps
 
+- **Headless sessions can consume the nudge.** A scripted `claude -p` or
+  `codex exec` fires `SessionStart` with source `startup`, so it can claim and
+  confirm the nudge where no one sees it.
 - **Unsupported agents.** Only the five sources above are scanned. Cursor,
   Windsurf, Hermes, Pi and other agents are not read.
 - **aider** is off unless `CAVEMAN_AIDER_ROOT` points at a directory to walk.
