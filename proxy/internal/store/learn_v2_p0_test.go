@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -343,4 +344,50 @@ func containsCaveat(caveats []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func TestSessionContextPastFallbackWindowInfersLargerWindow(t *testing.T) {
+	scan := func(contexts ...int) behaviorScan {
+		t.Helper()
+		var lines strings.Builder
+		for i, ctx := range contexts {
+			fmt.Fprintf(&lines, `{"type":"assistant","message":{"id":"m%d","model":"claude-opus-5-5","usage":{"input_tokens":%d}}}`+"\n", i, ctx)
+		}
+		path := filepath.Join(t.TempDir(), "s.jsonl")
+		if err := os.WriteFile(path, []byte(lines.String()), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		beh := behaviorScan{SkillUse: map[string]int{}, SessionsBySource: map[string]int{}}
+		scanClaudeTranscriptBehavior(path, "repo/s.jsonl", time.Time{}, nil, &beh, newRecurringMiner())
+		return beh
+	}
+	// 300k cannot fit a 200k window, so the whole session is a 1M session:
+	// the earlier 150k turn is not dumbzone either.
+	big := scan(150_000, 300_000)
+	if big.Turns != 2 || big.DumbzoneTurns != 0 || !big.InferredWindowSources["claude"] || len(big.SessionPeakPct) != 1 || big.SessionPeakPct[0] != 30 {
+		t.Fatalf("inferred-window behavior = %+v", big)
+	}
+	claudeDir := t.TempDir()
+	t.Setenv("CAVEMAN_CLAUDE_ROOT", claudeDir)
+	writeClaudeProject(t, claudeDir, "repo", "a.jsonl", []string{
+		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:00:00Z","message":{"id":"a","model":"claude-opus-5-5","usage":{"input_tokens":150000}}}`,
+		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:01:00Z","message":{"id":"b","model":"claude-opus-5-5","usage":{"input_tokens":300000}}}`,
+	})
+	metrics := scanLearnSessionMetrics(map[string]bool{"claude": true}, time.Time{}, "", false)
+	for _, m := range metrics {
+		if m.Dumbzone != 0 || m.Turns != 2 || len(metrics) != 1 {
+			t.Fatalf("session metric kept the 200k window: %+v", m)
+		}
+	}
+	plan, err := openRetroTestStore(t).BuildLearnPlan(t.TempDir(), []string{"claude"}, "3650d")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsCaveat(plan.Caveats, "inferred from observed context") {
+		t.Fatalf("plan does not say the window was inferred: %v", plan.Caveats)
+	}
+	small := scan(150_000, 190_000)
+	if small.DumbzoneTurns != 2 || small.InferredWindowSources["claude"] || small.SessionPeakPct[0] != 95 {
+		t.Fatalf("capped session must stay on the 200k fallback: %+v", small)
+	}
 }
