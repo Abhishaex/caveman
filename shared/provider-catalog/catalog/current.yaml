@@ -68,7 +68,7 @@
     cache_write_input_per_million: 2.50
     cache_write_1h_input_per_million: null
     reasoning_output_per_million: null
-    batch_discount_fraction: null
+    batch_discount_fraction: 0.50
     long_context_threshold_tokens: 272000
     long_context_input_multiplier: 2.0
     long_context_output_multiplier: 1.5
@@ -81,6 +81,7 @@
     json_mode: true
   sources:
     - https://developers.openai.com/api/docs/models/gpt-5.6-terra
+    - https://developers.openai.com/api/docs/pricing
   verified_at: 2026-09-28T00:00:00Z
   capabilities_verified_at: 2026-09-28T00:00:00Z
 - provider: openai
@@ -94,7 +95,7 @@
     cache_write_input_per_million: 0.25
     cache_write_1h_input_per_million: null
     reasoning_output_per_million: null
-    batch_discount_fraction: null
+    batch_discount_fraction: 0.50
     long_context_threshold_tokens: 272000
     long_context_input_multiplier: 2.0
     long_context_output_multiplier: 1.5
@@ -107,6 +108,7 @@
     json_mode: true
   sources:
     - https://developers.openai.com/api/docs/models/gpt-5.6-luna
+    - https://developers.openai.com/api/docs/pricing
   verified_at: 2026-09-28T00:00:00Z
   capabilities_verified_at: 2026-09-28T00:00:00Z
 - provider: openai
