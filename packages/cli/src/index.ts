@@ -17130,7 +17130,7 @@ function learnProvenanceLabel(provenance: string): string {
 export function fmtMoney(value: number, currency: string): string {
   const symbol = currency === "USD" ? "$" : `${currency} `;
   if (!Number.isFinite(value)) return `${symbol}0`;
-  if (Math.abs(value) >= 1) return `${symbol}${value.toFixed(2)}`;
+  if (Math.abs(value) >= 1) return `${symbol}${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   if (Math.abs(value) >= 0.01) return `${symbol}${value.toFixed(3)}`;
   return `${symbol}${value.toFixed(5)}`;
 }

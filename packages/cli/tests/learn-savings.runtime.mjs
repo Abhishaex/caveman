@@ -197,6 +197,7 @@ test("an empty ledger explains itself instead of showing zero", () => {
 
 test("sub-cent spend stays legible instead of rounding to nothing", () => {
   assert.equal(fmtMoney(12.5, "USD"), "$12.50");
+  assert.equal(fmtMoney(27539.656, "USD"), "$27,539.66");
   assert.equal(fmtMoney(0.036, "USD"), "$0.036");
   assert.equal(fmtMoney(0.000031, "USD"), "$0.00003");
 });
