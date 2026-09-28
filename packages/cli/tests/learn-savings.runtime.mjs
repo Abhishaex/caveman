@@ -44,10 +44,21 @@ test("window cost renders provider-counted spend and the effective input rate", 
   assert.match(out, /^cost {2}/m);
   assert.match(out, /\$34\.10/);
   assert.match(out, /input really costs/);
-  assert.match(out, /19% of list price, thanks to caching/);
+  assert.match(out, /19% of list price — caching is doing its job/);
   // The subscription disclaimer is not optional: a Max user's marginal cost is
   // zero and the figure must never read as money they spent.
   assert.match(out, /on a subscription plan you pay nothing extra per token/);
+});
+
+test("the effective input verdict never credits caching that is not helping", () => {
+  const line = (multiplier) => renderLearnPlan({
+    ...basePlan,
+    spend: { basis: "provider_counted_x_published_rate", currency: "USD", usd: 0, effective_input_usd_per_mtok: 3, effective_input_multiplier: multiplier },
+  });
+  assert.match(line(0.45), /45% of list price — some caching/);
+  const high = line(1.18);
+  assert.match(high, /118% of list price — little or no caching/);
+  assert.doesNotMatch(high, /thanks to caching|doing its job/);
 });
 
 test("an unpriced model is disclosed so the total reads as a floor", () => {

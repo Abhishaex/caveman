@@ -16722,7 +16722,9 @@ function renderLearnSpendLines(spend: LearnSpend | undefined, markdown: boolean,
   const rate = spend.effective_input_usd_per_mtok ?? 0;
   if (multiplier > 0 && rate > 0) {
     const share = multiplier * 100 >= 1 ? `${Math.round(multiplier * 100)}%` : "under 1%";
-    lines.push(`input really costs  ${fmtMoney(rate, currency)} per 1M tokens  ·  ${share} of list price, thanks to caching`);
+    // Same thresholds as the proxy's effectiveInputSummary.
+    const verdict = multiplier < 0.25 ? "caching is doing its job" : multiplier < 0.6 ? "some caching" : "little or no caching";
+    lines.push(`input really costs  ${fmtMoney(rate, currency)} per 1M tokens  ·  ${share} of list price — ${verdict}`);
   }
   const components = (spend.components ?? []).filter((component) => component.usd > 0);
   if (components.length > 0 && spend.usd > 0) {
