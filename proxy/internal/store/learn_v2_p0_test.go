@@ -347,11 +347,12 @@ func containsCaveat(caveats []string, needle string) bool {
 }
 
 func TestSessionContextPastFallbackWindowInfersLargerWindow(t *testing.T) {
+	// An id the catalog cannot know, so the 200k fallback applies.
 	scan := func(contexts ...int) behaviorScan {
 		t.Helper()
 		var lines strings.Builder
 		for i, ctx := range contexts {
-			fmt.Fprintf(&lines, `{"type":"assistant","message":{"id":"m%d","model":"claude-opus-5-5","usage":{"input_tokens":%d}}}`+"\n", i, ctx)
+			fmt.Fprintf(&lines, `{"type":"assistant","message":{"id":"m%d","model":"claude-uncataloged-9","usage":{"input_tokens":%d}}}`+"\n", i, ctx)
 		}
 		path := filepath.Join(t.TempDir(), "s.jsonl")
 		if err := os.WriteFile(path, []byte(lines.String()), 0o600); err != nil {
@@ -370,8 +371,8 @@ func TestSessionContextPastFallbackWindowInfersLargerWindow(t *testing.T) {
 	claudeDir := t.TempDir()
 	t.Setenv("CAVEMAN_CLAUDE_ROOT", claudeDir)
 	writeClaudeProject(t, claudeDir, "repo", "a.jsonl", []string{
-		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:00:00Z","message":{"id":"a","model":"claude-opus-5-5","usage":{"input_tokens":150000}}}`,
-		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:01:00Z","message":{"id":"b","model":"claude-opus-5-5","usage":{"input_tokens":300000}}}`,
+		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:00:00Z","message":{"id":"a","model":"claude-uncataloged-9","usage":{"input_tokens":150000}}}`,
+		`{"type":"assistant","cwd":"/r","timestamp":"2026-09-20T10:01:00Z","message":{"id":"b","model":"claude-uncataloged-9","usage":{"input_tokens":300000}}}`,
 	})
 	metrics := scanLearnSessionMetrics(map[string]bool{"claude": true}, time.Time{}, "", false)
 	for _, m := range metrics {
