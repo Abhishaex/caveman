@@ -205,7 +205,7 @@ function sinksOf(value: unknown): ScanSink[] | undefined {
   return Array.isArray(sinks) ? sinks as ScanSink[] : undefined;
 }
 
-type Fresh = { title: string; tokens_per_turn: number; doctor?: boolean; repo?: string };
+type Fresh = { title: string; tokens_per_turn: number; class?: string; doctor?: boolean; repo?: string };
 
 // nudgeLine leads with the biggest new finding; memory-file findings
 // ride along as a count, or lead when they are all that is new.
@@ -222,7 +222,10 @@ export function nudgeLine(fresh: Fresh[]): string {
   const top = sinks[0]!;
   const lead = sinks.length === 1 ? "new finding" : `${sinks.length} new findings, biggest`;
   const extra = doctor.length > 0 ? `, plus ${findings(doctor.length)}` : "";
-  return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens in every message, estimate)${extra}. Run \`caveman learn\` to review.`;
+  // A recurring_context sink is a pasted block averaged over all messages, not
+  // something loaded with each one.
+  const where = top.class === "recurring_context" ? "per message on average" : "in every message";
+  return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens ${where}, estimate)${extra}. Run \`caveman learn\` to review.`;
 }
 
 export const AUTOPILOT_PROXY_TOO_OLD = "proxy too old for autopilot (needs learn capabilities)";
@@ -301,6 +304,7 @@ export function runAutopilot(proxyBin: string): number {
         sink_id: sink.sink_id as string,
         title: typeof sink.title === "string" ? sink.title : sink.sink_id as string,
         tokens_per_turn: typeof sink.tokens_per_turn === "number" ? sink.tokens_per_turn : 0,
+        ...(typeof sink.class === "string" ? { class: sink.class } : {}),
         doctor: doctorFinding(sink),
         ...(typeof sink.evidence?.repo === "string" ? { repo: sink.evidence.repo } : {}),
       }))

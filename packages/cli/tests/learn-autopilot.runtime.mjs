@@ -270,7 +270,7 @@ test("several new sinks collapse into one line; unclaimed nudge is not overwritt
     await new Promise((r) => setTimeout(r, 20));
     await run([cli, "learn", "autopilot", "run"], box.env);
     const next = await hook(cli, "codex", sessionStart("startup"), box.env);
-    assert.match(JSON.parse(next.stdout).systemMessage, /new finding — Deploy notes pasted each session \(~2\.4k tokens in every message, estimate\)/);
+    assert.match(JSON.parse(next.stdout).systemMessage, /new finding — Deploy notes pasted each session \(~2\.4k tokens per message on average, estimate\)/);
 
     // Multi-sink single line.
     box.seed({ seen: [] });
@@ -335,6 +335,10 @@ test("nudge line counts doctor findings behind the biggest finding", async () =>
     { title: "Big sink", tokens_per_turn: 5000 },
     { title: "Broken import", tokens_per_turn: 0, doctor: true },
   ]), "caveman learn: new finding — Big sink (~5.0k tokens in every message, estimate), plus 1 memory-file finding. Run `caveman learn` to review.");
+  assert.equal(nudgeLine([{ title: "Pasted block", tokens_per_turn: 2400, class: "recurring_context" }]),
+    "caveman learn: new finding — Pasted block (~2.4k tokens per message on average, estimate). Run `caveman learn` to review.");
+  assert.equal(nudgeLine([{ title: "Big CLAUDE.md", tokens_per_turn: 2400, class: "reducible" }]),
+    "caveman learn: new finding — Big CLAUDE.md (~2.4k tokens in every message, estimate). Run `caveman learn` to review.");
 });
 
 test("an unconfirmed in-flight nudge re-shows once after 10 minutes, never twice", { skip: !posix }, async () => {
