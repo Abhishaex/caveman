@@ -23,7 +23,7 @@ import (
 //
 // The rule is allowlist, not denylist: this file builds rows field by field from
 // scalars it names, so a future evidence key cannot smuggle content into an
-// export. It is user-initiated (`caveman learn export --digest`), never a
+// export. It is user-initiated (`caveman learn export`), never a
 // background upload — telemetry here is opt-in by decree.
 
 const learnDigestSchema = "caveman.learn.digest.v1"
