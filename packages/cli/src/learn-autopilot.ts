@@ -9,7 +9,7 @@
 // of following it) and refuse a symlinked parent; reads refuse symlinks. All
 // hook-side entry points are fail-silent.
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { homedir, setPriority } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,6 +19,9 @@ export type AutopilotState = {
   last_scan_at?: string;
   last_error?: string;
   seen?: string[];
+  // Last capability probe, keyed by proxy path + mtime + size so a proxy
+  // upgrade re-probes and an unchanged one is not spawned twice.
+  proxy_caps?: { key: string; ok: boolean };
 };
 
 type Nudge = { line: string; sink_ids: string[]; created_at: string; announced_at?: string; claimed_at?: string; reshown?: boolean };
@@ -222,6 +225,33 @@ export function nudgeLine(fresh: Fresh[]): string {
   return `caveman learn: ${lead} — ${clean(top.title)} (~${compactTokens(top.tokens_per_turn)} tokens/turn, inferred)${extra}. Run \`caveman learn\` to review.`;
 }
 
+export const AUTOPILOT_PROXY_TOO_OLD = "proxy too old for autopilot (needs learn capabilities)";
+const REQUIRED_CAPS = ["no_remember", "reports_home", "memory_health"];
+
+// proxySupportsAutopilot probes `learn capabilities`. A proxy that predates it
+// ignores --no-remember/--reports-home, so an unattended scan would write
+// cavemem and the canonical report; such a proxy never scans.
+function proxySupportsAutopilot(proxyBin: string, state: AutopilotState): boolean {
+  let key: string;
+  try {
+    const info = statSync(proxyBin);
+    key = `${proxyBin}:${info.mtimeMs}:${info.size}`;
+  } catch {
+    key = `${proxyBin}:missing`;
+  }
+  if (state.proxy_caps?.key === key) return state.proxy_caps.ok;
+  let ok = false;
+  try {
+    const probe = spawnSync(proxyBin, ["learn", "capabilities"], {
+      encoding: "utf8", env: process.env, timeout: 10_000, killSignal: "SIGKILL", stdio: ["ignore", "pipe", "ignore"], windowsHide: true,
+    });
+    const caps = probe.status === 0 ? JSON.parse(probe.stdout) as Record<string, unknown> : undefined;
+    ok = caps?.schema === "caveman.learn.capabilities.v1" && REQUIRED_CAPS.every((cap) => caps[cap] === true);
+  } catch { ok = false; }
+  state.proxy_caps = { key, ok };
+  return ok;
+}
+
 // Child side (`caveman learn autopilot run`). Holds the lock for the whole
 // scan; the proxy is SIGKILLed at the learn timeout. Returns an exit code.
 export function runAutopilot(proxyBin: string): number {
@@ -231,6 +261,11 @@ export function runAutopilot(proxyBin: string): number {
     const state = readAutopilotState();
     if (!due(state)) return 0;
     state.last_attempt_at = new Date().toISOString();
+    if (!proxySupportsAutopilot(proxyBin, state)) {
+      state.last_error = AUTOPILOT_PROXY_TOO_OLD;
+      writeJson(paths.state, state);
+      return 1;
+    }
     writeJson(paths.state, state);
     const result = spawnSync(proxyBin, ["learn", "scan", "--write-report", "--no-remember", "--reports-home", paths.reports], {
       encoding: "utf8",

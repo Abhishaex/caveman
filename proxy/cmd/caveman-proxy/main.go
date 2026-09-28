@@ -667,6 +667,13 @@ func runLearn(logger *slog.Logger, args []string) {
 		sub = args[0]
 		args = args[1:]
 	}
+	if sub == "capabilities" {
+		// The CLI's autopilot probes this before an unattended scan: an older
+		// proxy ignores unknown flags, so it would silently write cavemem and
+		// the canonical report. Answered before the store opens, so it is cheap.
+		printJSON(learnCapabilities())
+		return
+	}
 	home := mustHome(logger)
 	spend := mustStore(logger, home)
 	defer spend.Close()
@@ -795,6 +802,15 @@ func runLearn(logger *slog.Logger, args []string) {
 		runLearnReconcile(logger, spend, cwd, sources, since, args)
 	default:
 		fatalJSON(logger, fmt.Errorf("unknown learn subcommand: %s", sub))
+	}
+}
+
+func learnCapabilities() map[string]any {
+	return map[string]any{
+		"schema":        "caveman.learn.capabilities.v1",
+		"no_remember":   true,
+		"reports_home":  true,
+		"memory_health": true,
 	}
 }
 

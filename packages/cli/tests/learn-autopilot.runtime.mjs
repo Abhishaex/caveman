@@ -30,7 +30,14 @@ function sandbox(extra = {}) {
   const calls = join(home, "proxy-calls.log");
   const planFile = join(home, "plan.json");
   writeFileSync(planFile, JSON.stringify(bigPlan));
+  // FAKE_PROXY_OLD mimics a pre-capabilities proxy: unknown subcommand, exit 1.
   writeFileSync(proxy, `#!/bin/sh
+if [ "$1 $2" = "learn capabilities" ]; then
+  echo "$*" >> "${calls}.probe"
+  if [ -n "$FAKE_PROXY_OLD" ]; then echo "unknown learn subcommand: capabilities" >&2; exit 1; fi
+  echo '{"schema":"caveman.learn.capabilities.v1","no_remember":true,"reports_home":true,"memory_health":true}'
+  exit 0
+fi
 echo "$*" >> "${calls}"
 if [ -n "$FAKE_PROXY_SLEEP" ]; then sleep "$FAKE_PROXY_SLEEP"; fi
 cat "${planFile}"
@@ -55,6 +62,7 @@ cat "${planFile}"
   return {
     home, env, planFile, runtime,
     calls: () => existsSync(calls) ? readFileSync(calls, "utf8").trim().split("\n").filter(Boolean) : [],
+    probes: () => existsSync(`${calls}.probe`) ? readFileSync(`${calls}.probe`, "utf8").trim().split("\n").filter(Boolean) : [],
     state: () => JSON.parse(readFileSync(join(runtime, "learn-autopilot.json"), "utf8")),
     seed(state) {
       mkdirSync(runtime, { recursive: true });
@@ -187,7 +195,11 @@ test("lock contention: live lock skips, stale lock is taken over", { skip: !posi
 test("scan failure records last_error and still throttles", { skip: !posix }, async () => {
   const box = sandbox();
   try {
-    writeFileSync(box.env.CAVEMAN_PROXY_BIN, "#!/bin/sh\necho 'boom: no sessions dir' >&2\nexit 3\n", { mode: 0o755 });
+    writeFileSync(box.env.CAVEMAN_PROXY_BIN, `#!/bin/sh
+if [ "$1 $2" = "learn capabilities" ]; then echo '{"schema":"caveman.learn.capabilities.v1","no_remember":true,"reports_home":true,"memory_health":true}'; exit 0; fi
+echo 'boom: no sessions dir' >&2
+exit 3
+`, { mode: 0o755 });
     const failed = await run([cli, "learn", "autopilot", "run"], box.env);
     assert.equal(failed.code, 1);
     assert.equal(box.state().last_error, "boom: no sessions dir");
@@ -343,5 +355,33 @@ test("an unconfirmed in-flight nudge re-shows once after 10 minutes, never twice
     park(11, { reshown: true });
     const third = await hook(cli, "claude", sessionStart("startup"), box.env);
     assert.equal(JSON.parse(third.stdout).systemMessage, undefined, "one re-show max");
+  } finally { box.cleanup(); }
+});
+
+test("a proxy without learn capabilities never scans; the probe is cached per binary", { skip: !posix }, async () => {
+  const box = sandbox({ CAVEMAN_LEARN_AUTOPILOT_HOURS: "0.000001", FAKE_PROXY_OLD: "1" });
+  try {
+    box.seed({ seen: [] });
+    const first = await run([cli, "learn", "autopilot", "run"], box.env);
+    assert.equal(first.code, 1);
+    assert.deepEqual(box.calls(), [], "an old proxy must not be asked to scan");
+    assert.equal(box.state().last_error, "proxy too old for autopilot (needs learn capabilities)");
+    const status = await run([cli, "learn", "autopilot", "status"], box.env);
+    assert.match(status.stdout, /last error: +proxy too old for autopilot \(needs learn capabilities\)/);
+    await new Promise((r) => setTimeout(r, 20));
+    await run([cli, "learn", "autopilot", "run"], box.env);
+    assert.equal(box.probes().length, 1, "unchanged binary is probed once");
+
+    // Upgrading the binary (new mtime/size) re-probes and scans.
+    const upgraded = { ...box.env };
+    delete upgraded.FAKE_PROXY_OLD;
+    const proxy = box.env.CAVEMAN_PROXY_BIN;
+    writeFileSync(proxy, readFileSync(proxy, "utf8") + "\n# upgraded\n");
+    await new Promise((r) => setTimeout(r, 20));
+    const ok = await run([cli, "learn", "autopilot", "run"], upgraded);
+    assert.equal(ok.code, 0, ok.stderr);
+    assert.equal(box.probes().length, 2);
+    assert.equal(box.calls().length, 1);
+    assert.equal(box.state().last_error, undefined);
   } finally { box.cleanup(); }
 });

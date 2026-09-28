@@ -345,3 +345,16 @@ func TestLearnExperimentStartSkipsFlagValuesForLabel(t *testing.T) {
 		t.Fatalf("experiment start = %+v", out)
 	}
 }
+
+func TestLearnCapabilitiesAnswersWithoutAStore(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("CAVEMAN_HOME", home)
+	var caps map[string]any
+	learnJSON(t, &caps, "capabilities")
+	if caps["schema"] != "caveman.learn.capabilities.v1" || caps["no_remember"] != true || caps["reports_home"] != true || caps["memory_health"] != true {
+		t.Fatalf("capabilities = %v", caps)
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Fatal("capabilities must not create a store")
+	}
+}
