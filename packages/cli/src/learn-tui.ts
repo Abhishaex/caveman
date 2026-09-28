@@ -16,6 +16,7 @@ export type LearnTuiModel = {
   status?: string;
   moves: LearnTuiMove[];
   protected?: string;
+  memory?: string;
   confirmed?: number;
   findings: number;
   report: string;
@@ -121,6 +122,7 @@ export async function renderLearnTui(model: LearnTuiModel): Promise<LearnTuiResu
   if (model.protected) {
     p.log.warn(`${bold("Protected")}  ${model.protected}`);
   }
+  if (model.memory) p.log.info(model.memory);
 
   const options: Array<{ value: LearnTuiAction; label: string; hint?: string }> = [];
   if (model.moves.length > 0) {

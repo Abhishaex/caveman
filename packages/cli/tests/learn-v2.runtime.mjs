@@ -280,3 +280,20 @@ test("learn v2 skill embedded by CLI stays byte-identical to canonical skill", a
     isolated.cleanup();
   }
 });
+
+test("memory & rules findings get one pointer line in plain and TUI output", () => {
+  const doctor = (kind) => ({
+    sink_id: `memory_health:${kind}:abcd1234`, title: `${kind} finding`, class: "behavioral", basis: "inferred",
+    tokens_per_turn: 0, tokens_per_day_rate: 0, evidence: { path: "/repo/CLAUDE.md" }, suggestion: "fix it", framing: "forward",
+  });
+  const withDoctor = { ...plan, sinks: [...plan.sinks, doctor("broken_imports"), doctor("stale_references")] };
+  const text = renderLearnPlan(withDoctor, { report: "/tmp/report.html" });
+  const lines = text.split("\n").filter((line) => line.startsWith("memory & rules"));
+  assert.equal(lines.length, 1, text);
+  assert.match(lines[0], /^memory & rules {2}2 findings — \S+ learn --all$/);
+  assert.match(buildLearnTuiModel(withDoctor, { report: "/tmp/report.html" }).memory, /2 findings/);
+  const one = renderLearnPlan({ ...plan, sinks: [...plan.sinks, doctor("broken_imports")] }, { report: "/tmp/report.html" });
+  assert.match(one, /memory & rules {2}1 finding — /);
+  assert.ok(!renderLearnPlan(plan, { report: "/tmp/report.html" }).includes("memory & rules"));
+  assert.equal(buildLearnTuiModel(plan, { report: "/tmp/report.html" }).memory, undefined);
+});

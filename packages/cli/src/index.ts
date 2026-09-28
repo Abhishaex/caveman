@@ -16172,10 +16172,18 @@ export type LearnTuiViewModel = {
   status?: string;
   moves: LearnSummaryMove[];
   protected?: string;
+  memory?: string;
   confirmed?: number;
   findings: number;
   report: string;
 };
+
+// learnMemoryHealthLine points at the memory & rules doctor findings in one
+// line; they carry no token rate, so they rarely make the top moves.
+function learnMemoryHealthLine(plan: LearnPlan): string | undefined {
+  const count = plan.sinks.filter((sink) => sink.sink_id.startsWith("memory_health:")).length;
+  return count > 0 ? `memory & rules  ${count} finding${count === 1 ? "" : "s"} — ${invokedAs()} learn --all` : undefined;
+}
 
 export function learnSummaryMoves(plan: LearnPlan): LearnSummaryMove[] {
   const moves: LearnSummaryMove[] = [];
@@ -16289,6 +16297,7 @@ export function buildLearnTuiModel(
   const confirmed = plan.confirmed?.length ?? 0;
   const diffText = learnDiffText(options.diff);
   const trend = learnTrendLines(plan.trends);
+  const memory = learnMemoryHealthLine(plan);
   const status = sessions === 0
     ? LEARN_EMPTY
     : !recurring
@@ -16305,6 +16314,7 @@ export function buildLearnTuiModel(
     ...(protectedSink
       ? { protected: `${protectedSink.title.replace(/^Your\s+/i, "")} · included in score, never auto-fixed${learnMeasuredPrefixSuffix(protectedSink)}` }
       : {}),
+    ...(memory ? { memory } : {}),
     ...(confirmed > 0 ? { confirmed } : {}),
     findings: plan.sinks.length,
     report: options.report ?? learnReportPath(),
@@ -16360,6 +16370,8 @@ export function renderLearnPlan(
   } else if (!recurring) {
     if (plan.sinks.length > 0) {
       lines.push(...(verbose ? renderLearnDetailedRows(plan, markdown) : ["top moves", ...renderLearnSummaryRows(plan)]), "");
+      const memory = verbose ? undefined : learnMemoryHealthLine(plan);
+      if (memory) lines.push(memory, "");
     }
     lines.push(`${sessions} sessions scanned · no block repeated across ≥3 sessions yet — keep running \`caveman claude\`, then re-run \`caveman learn\``);
     lines.push(...(verbose ? [] : learnTrendLines(plan.trends)));
@@ -16395,6 +16407,8 @@ export function renderLearnPlan(
         const title = protectedSink.title.replace(/^Your\s+/i, "");
         lines.push(`protected  ${title} · included in score, never auto-fixed${learnMeasuredPrefixSuffix(protectedSink)}`);
       }
+      const memory = learnMemoryHealthLine(plan);
+      if (memory) lines.push(memory);
       lines.push(
         "",
         `next:  ${invokedAs()} learn implement   fix with Claude Code or Codex; asks before every edit`,

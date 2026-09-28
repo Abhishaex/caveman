@@ -296,3 +296,34 @@ func TestMemoryHealthInLearnPlan(t *testing.T) {
 		t.Fatalf("memory_health sink missing from plan: %+v", plan.Sinks)
 	}
 }
+
+func TestLearnReportListsEveryMemoryHealthFinding(t *testing.T) {
+	var sinks []Sink
+	for i := range 25 {
+		sinks = append(sinks, Sink{SinkID: fmt.Sprintf("config_tax:x%d", i), Title: fmt.Sprintf("busy sink %d", i), Class: classReducible, Basis: learnBasis, TokensPerTurn: 100, TokensPerDayRate: int64(10_000 - i)})
+	}
+	sinks = append(sinks, memorySink("broken_imports", "abcd1234", "CLAUDE.md (project) has 1 @import that resolves to a missing file", classBehavioral, 0, 0,
+		map[string]any{"path": "/repo/CLAUDE.md"}, "Fix or remove the @import."))
+	render := func(sinks []Sink) string {
+		t.Helper()
+		out := filepath.Join(t.TempDir(), "learn.html")
+		if err := (&Store{}).WriteLearnHTML(LearnPlan{Schema: learnSchema, Basis: learnBasis, Sinks: sinks}, out); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(out)
+		return string(raw)
+	}
+	html := render(sinks)
+	at := strings.Index(html, "<h2>Memory &amp; rules health</h2>")
+	if at < 0 {
+		t.Fatal("memory & rules section missing")
+	}
+	for _, want := range []string{"broken imports", "has 1 @import that resolves", "Fix or remove the @import.", "/repo/CLAUDE.md", "Every finding is listed here (1)"} {
+		if !strings.Contains(html[at:], want) {
+			t.Errorf("memory section missing %q", want)
+		}
+	}
+	if strings.Contains(render(sinks[:25]), "Memory &amp; rules health") {
+		t.Error("section must be omitted without memory findings")
+	}
+}

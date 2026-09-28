@@ -506,6 +506,27 @@ func topSinks(sinks []Sink) []Sink {
 	return sinks
 }
 
+// reportMemoryFindings lists every memory & rules doctor finding. Most carry no
+// token rate, so on a busy machine topSinks would never reach them.
+func reportMemoryFindings(sinks []Sink) []Sink {
+	var out []Sink
+	for _, s := range sinks {
+		if strings.HasPrefix(s.SinkID, "memory_health:") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// memoryHealthKind is the detector name from memory_health:<kind>:<scope>.
+func memoryHealthKind(sinkID string) string {
+	parts := strings.SplitN(sinkID, ":", 3)
+	if len(parts) < 2 {
+		return sinkID
+	}
+	return strings.ReplaceAll(parts[1], "_", " ")
+}
+
 func sumPerDay(sinks []Sink) int64 {
 	var total int64
 	for _, s := range sinks {
@@ -616,6 +637,8 @@ var learnTemplate = template.Must(template.New("learn").Funcs(template.FuncMap{
 	"human":         humanTokens,
 	"observedBasis": observedTokenBasis,
 	"topSinks":      topSinks,
+	"memoryHealth":  reportMemoryFindings,
+	"memoryKind":    memoryHealthKind,
 	"trends":        learnTrendsHTML,
 	"classClass": func(class string) string {
 		switch class {
@@ -874,6 +897,14 @@ ul.caveats li{margin:6px 0}
   </div>
 </details>
 {{else}}<div class="empty">No token sinks found yet. Scan more sessions, then come back.</div>{{end}}
+
+{{with memoryHealth .Plan.Sinks}}
+<h2>Memory &amp; rules health</h2>
+<p class="note">Read-only checks of the instruction and memory files your agents load. Every finding is listed here ({{len .}}); most carry no token rate, so they rank low among the sinks above.</p>
+<div class="props">
+{{range .}}<div class="prop"><span class="k">{{memoryKind .SinkID}}</span><span>{{.Title}}{{if .Suggestion}}<br><span class="kv">{{.Suggestion}}</span>{{end}}{{with index .Evidence "path"}}<br><span class="mono">{{.}}</span>{{end}}</span><span class="v">{{if .TokensPerTurn}}{{comma .TokensPerTurn}} / turn{{end}}</span></div>
+{{end}}</div>
+{{end}}
 
 {{with .Plan.ContextDepth}}
 <h2>Session Context Depth</h2>
