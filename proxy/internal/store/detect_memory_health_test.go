@@ -140,6 +140,7 @@ func TestBrokenImports(t *testing.T) {
 		"Mail julius@example.com or ping @someuser about @anthropic-ai/sdk.",
 		"Globs @src/*.ts and placeholders @<name>.md are not imports.",
 		"See https://example.com/@user/file.md",
+		"Ask @john.doe, pin @v1.2, see @config.local and @//fileserver/share/rules.md.",
 		"```",
 		"@./fenced.md",
 		"```",
@@ -344,5 +345,21 @@ func TestMemoryHealthTitlesUseSingular(t *testing.T) {
 		if len(got) != 1 || got[0].Title != want {
 			t.Errorf("%s title = %+v, want %q", prefix, got, want)
 		}
+	}
+}
+
+func TestBrokenImportsSkipsCodexOnlyFiles(t *testing.T) {
+	_, repo := memoryHealthEnv(t)
+	// A project CLAUDE.md exists, so Claude does not read AGENTS.md: it is Codex-only.
+	mustWrite(t, filepath.Join(repo, "CLAUDE.md"), "- be terse\n")
+	mustWrite(t, filepath.Join(repo, "AGENTS.md"), "@./missing.md\n")
+	for _, s := range memorySinksWithPrefix(memoryHealthSinks(repo, 0), "memory_health:broken_imports:") {
+		if s.Evidence["path"] == filepath.Join(repo, "AGENTS.md") {
+			t.Fatalf("Codex-only AGENTS.md checked for @imports: %+v", s)
+		}
+	}
+	mustWrite(t, filepath.Join(repo, "GEMINI.md"), "@./gone.md\n")
+	if got := memorySinksWithPrefix(memoryHealthSinks(repo, 0), "memory_health:broken_imports:"); len(got) != 1 || got[0].Evidence["path"] != filepath.Join(repo, "GEMINI.md") {
+		t.Fatalf("GEMINI.md @imports must still be checked: %+v", got)
 	}
 }

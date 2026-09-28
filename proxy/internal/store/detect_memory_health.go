@@ -31,12 +31,15 @@ const (
 )
 
 var (
-	mhFence       = regexp.MustCompile("^\\s*(```|~~~)")
-	mhCodeSpan    = regexp.MustCompile("`[^`]*`")
-	mhBacktick    = regexp.MustCompile("`([^`\\s]+)`")
-	mhImport      = regexp.MustCompile(`(?:^|\s)@(\S+)`)
-	mhMDLink      = regexp.MustCompile(`\]\(([^)\s]+)\)`)
-	mhExt         = regexp.MustCompile(`\.[A-Za-z0-9]{1,8}$`)
+	mhFence    = regexp.MustCompile("^\\s*(```|~~~)")
+	mhCodeSpan = regexp.MustCompile("`[^`]*`")
+	mhBacktick = regexp.MustCompile("`([^`\\s]+)`")
+	mhImport   = regexp.MustCompile(`(?:^|\s)@(\S+)`)
+	mhMDLink   = regexp.MustCompile(`\]\(([^)\s]+)\)`)
+	mhExt      = regexp.MustCompile(`\.[A-Za-z0-9]{1,8}$`)
+	// mhImportExt is the conservative set of text files an extension-only
+	// @import may name; "@v1.2" or "@john.doe" must not read as imports.
+	mhImportExt   = regexp.MustCompile(`(?i)\.(md|mdx|markdown|txt|json|jsonc|yaml|yml|toml)$`)
 	mhLineSuffix  = regexp.MustCompile(`(:\d+(:\d+)?|#L\d+(-L?\d+)?)$`)
 	mhBullet      = regexp.MustCompile(`^(?:[-*+]|\d+[.)])\s+`)
 	mhEmphatic    = regexp.MustCompile(`\b(NEVER|ALWAYS|MUST|IMPORTANT|CRITICAL)\b`)
@@ -74,7 +77,10 @@ func memoryHealthSinks(cwd string, turnsPerDay float64) []Sink {
 		if f.Scope == "memory" {
 			continue
 		}
-		sinks = append(sinks, brokenImportsSink(f)...)
+		if f.Agents["claude"] || f.Agents["gemini"] {
+			// @path imports are Claude Code and Gemini CLI syntax; Codex reads @ literally.
+			sinks = append(sinks, brokenImportsSink(f)...)
+		}
 		if f.Scope == "project" {
 			sinks = append(sinks, staleReferencesSink(f)...)
 		}
@@ -422,16 +428,17 @@ func brokenImportsSink(f *instructionFile) []Sink {
 }
 
 // importLooksLikePath keeps only tokens that are unambiguously file imports:
-// an explicit ./ ../ ~/ / prefix or a file extension. @mentions, npm scopes
-// and emails (never whitespace-prefixed at the @) fall out.
+// an explicit ./ ../ ~/ / prefix or a known text-file extension. @mentions,
+// versions, npm scopes and emails fall out. A //host path is refused so the
+// doctor never stats a UNC share (an SMB round trip on Windows).
 func importLooksLikePath(tok string) bool {
-	if tok == "" || strings.Contains(tok, "://") || strings.Contains(tok, "@") || mhPathReject.MatchString(tok) {
+	if tok == "" || strings.HasPrefix(tok, "//") || strings.Contains(tok, "://") || strings.Contains(tok, "@") || mhPathReject.MatchString(tok) {
 		return false
 	}
 	if strings.HasPrefix(tok, "./") || strings.HasPrefix(tok, "../") || strings.HasPrefix(tok, "~/") || strings.HasPrefix(tok, "/") {
 		return true
 	}
-	return mhExt.MatchString(filepath.Base(tok))
+	return mhImportExt.MatchString(filepath.Base(tok))
 }
 
 func staleReferencesSink(f *instructionFile) []Sink {
