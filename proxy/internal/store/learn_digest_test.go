@@ -12,9 +12,9 @@ import (
 func TestDigestCarriesIdentityNotContent(t *testing.T) {
 	after := 400.0
 	plan := LearnPlan{
-		Window:          LearnWindow{Since: "30d", From: "2026-07-22T00:00:00Z", To: "2026-08-21T00:00:00Z"},
-		CaveScore:       CaveScore{Score: 71},
-		SessionsScanned: 42,
+		Window:           LearnWindow{Since: "30d", From: "2026-07-22T00:00:00Z", To: "2026-08-21T00:00:00Z"},
+		CaveScore:        CaveScore{Score: 71},
+		SessionsScanned:  42,
 		SessionsBySource: map[string]int{"claude": 30, "codex": 12},
 		Sinks: []Sink{
 			{
